@@ -22,7 +22,7 @@ export function discoverImageAssets(
   const definitions = new Map<string, { url: string; title?: string }>();
   visitNodes(tree, node => {
     if (node.type === "definition" && node.identifier && node.url) {
-      definitions.set(node.identifier.toLocaleLowerCase(), {
+      definitions.set(node.identifier.toLowerCase(), {
         url: node.url,
         ...(node.title == null ? {} : { title: node.title })
       });
@@ -35,7 +35,7 @@ export function discoverImageAssets(
     const target = node.type === "image"
       ? node.url ? { url: node.url, title: node.title ?? undefined } : undefined
       : node.type === "imageReference" && node.identifier
-        ? definitions.get(node.identifier.toLocaleLowerCase())
+        ? definitions.get(node.identifier.toLowerCase())
         : undefined;
     if (!target) {
       return;

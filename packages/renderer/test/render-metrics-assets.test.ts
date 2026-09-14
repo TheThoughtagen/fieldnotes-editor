@@ -35,9 +35,28 @@ flowchart LR
 \`\`\`
 `;
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("visible text metrics", () => {
+  it("includes visible prose and image alt text from raw HTML blocks", async () => {
+    const result = await renderDocument(`<section>
+Raw <strong>visible words</strong>.
+<img src="images/raw.png" alt="Raw diagram">
+<script>script words excluded</script>
+<style>.hidden { content: "style words excluded"; }</style>
+<pre>raw code words excluded</pre>
+<code>inline raw code words excluded</code>
+</section>
+`);
+
+    expect(result.plainText).toBe("Raw visible words. Raw diagram");
+    expect(result.wordCount).toBe(5);
+    expect(result.plainText).not.toMatch(/script|style|code|excluded/u);
+  });
+
   it("counts only reader-visible Markdown text", async () => {
     const result = await renderDocument(source);
 
@@ -74,6 +93,19 @@ describe("visible text metrics", () => {
 });
 
 describe("image asset references", () => {
+  it("normalizes reference identifiers without locale-sensitive APIs", async () => {
+    const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase")
+      .mockImplementation(() => { throw new Error("locale-sensitive normalization is forbidden"); });
+
+    const result = await renderDocument(`![Reference alt][STATUS]
+
+[status]: images/reference.png
+`);
+
+    expect(localeLowerCase).not.toHaveBeenCalled();
+    expect(result.assets[0]).toMatchObject({ source: "images/reference.png", alt: "Reference alt" });
+  });
+
   it("records local and remote images without filesystem or network access", async () => {
     vi.stubGlobal("fetch", () => {
       throw new Error("renderDocument must not fetch remote assets");
