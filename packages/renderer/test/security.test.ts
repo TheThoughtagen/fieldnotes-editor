@@ -15,6 +15,50 @@ describe("hostile document input", () => {
 
     expect(result.html.toLocaleLowerCase()).not.toContain(forbidden);
   });
+
+  it("protects raw id/name attributes while retaining trusted Markdown heading IDs", async () => {
+    const result = await renderDocument(`<div id="location" name="cookie">raw</div>
+
+<h2 id="spoofed-heading">Raw heading</h2>
+
+## Trusted heading
+`);
+
+    expect(result.html).not.toContain('id="location"');
+    expect(result.html).not.toContain('name="cookie"');
+    expect(result.html).not.toContain('id="spoofed-heading"');
+    expect(result.html).toContain('id="user-content-location"');
+    expect(result.html).toContain('<h2 id="trusted-heading">Trusted heading</h2>');
+  });
+
+  it("retains exact IDs only for validated explicit heading anchors", async () => {
+    const result = await renderDocument(`<a id="standalone"></a>
+
+<a id="stable-heading"></a>
+
+## Visible heading
+`);
+
+    expect(result.html).not.toContain('id="standalone"');
+    expect(result.html).toContain('<a id="stable-heading"></a>');
+    expect(result.html).toContain('<h2 id="stable-heading">Visible heading</h2>');
+  });
+
+  it("does not trust raw data-highlight-lines provenance", async () => {
+    const result = await renderDocument('<pre><code data-highlight-lines="1">raw code</code></pre>');
+
+    expect(result.html).not.toContain("data-highlight-lines");
+    expect(result.html).not.toContain("data-highlighted-line");
+    expect(result.html).not.toContain("code-line");
+  });
+
+  it("removes source and srcset from raw picture markup", async () => {
+    const result = await renderDocument('<picture><source srcset="https://evil.example/a.png 2x"><img src="safe.png" alt="Safe"></picture>');
+
+    expect(result.html).not.toContain("<source");
+    expect(result.html).not.toContain("srcset");
+    expect(result.html).toContain('<img alt="Safe" src="safe.png">');
+  });
 });
 
 describe("iframe allowlist", () => {
@@ -63,6 +107,26 @@ describe("iframe allowlist", () => {
   });
 
   it.each([
+    "https://www.youtube-nocookie.com:443/embed/abc",
+    "https://www.youtube-nocookie.com/embed/abc#start",
+    "https://player.vimeo.com:443/video/123#chapter"
+  ])("accepts contract-safe port and fragment form %s", async src => {
+    const result = await renderDocument(`<iframe src="${src}"></iframe>`);
+
+    expect(result.html).toContain(`<iframe sandbox="allow-scripts allow-same-origin allow-presentation" src="${src}"></iframe>`);
+  });
+
+  it("rejects a protocol-relative allowlisted host", async () => {
+    const src = "//www.youtube-nocookie.com/embed/abc";
+    const result = await renderDocument(`<iframe src="${src}"></iframe>`);
+
+    expect(result.html).not.toContain("<iframe");
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "iframe.invalid-source" }));
+  });
+
+  it.each([
+    ["-1", "width"],
+    ["0", "height"],
     ["12.5", "width"],
     ["wide", "width"],
     ["20px", "height"]
@@ -86,5 +150,11 @@ describe("deterministic normalization", () => {
   it("is idempotent", () => {
     const once = normalizeHtml('<img width="10" alt="A" src="image.png">');
     expect(normalizeHtml(once)).toBe(once);
+  });
+
+  it("sorts by final HTML attribute names rather than HAST property keys", () => {
+    expect(normalizeHtml('<label frameborder="1" form="owner" for="field" data-z="z" class="label" aria-label="Field"></label>')).toBe(
+      '<label aria-label="Field" class="label" data-z="z" for="field" form="owner" frameborder="1"></label>'
+    );
   });
 });

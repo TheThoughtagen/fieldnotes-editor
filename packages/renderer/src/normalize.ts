@@ -3,6 +3,9 @@ import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import type { Root } from "hast";
 
+const stringifier = unified().use(rehypeStringify);
+const serializedNames = new Map<string, string>();
+
 type HastNode = {
   type: string;
   value?: string;
@@ -25,7 +28,7 @@ export function serializeNormalizedHtml(tree: unknown): string {
   }
   normalizeText(tree);
   sortAttributes(tree);
-  return String(unified().use(rehypeStringify).stringify(tree as Root));
+  return String(stringifier.stringify(tree as Root));
 }
 
 function normalizeText(value: unknown): void {
@@ -44,10 +47,34 @@ function sortAttributes(value: unknown): void {
   }
   if (value.properties !== undefined) {
     value.properties = Object.fromEntries(
-      Object.entries(value.properties).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      Object.entries(value.properties).sort((left, right) => {
+        const leftName = serializedAttributeName(left[0], left[1]);
+        const rightName = serializedAttributeName(right[0], right[1]);
+        return leftName < rightName ? -1 : leftName > rightName ? 1 : 0;
+      })
     );
   }
   value.children?.forEach(sortAttributes);
+}
+
+function serializedAttributeName(property: string, value: unknown): string {
+  const cached = serializedNames.get(property);
+  if (cached !== undefined) {
+    return cached;
+  }
+  for (const probe of [value, true, "value"]) {
+    const html = String(stringifier.stringify({
+      type: "root",
+      children: [{ type: "element", tagName: "i", properties: { [property]: probe }, children: [] }]
+    } as Root));
+    const match = /^<i\s+([^\s=>]+)/u.exec(html);
+    if (match !== null) {
+      serializedNames.set(property, match[1]);
+      return match[1];
+    }
+  }
+  serializedNames.set(property, property);
+  return property;
 }
 
 function isHastNode(value: unknown): value is HastNode {

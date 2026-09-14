@@ -13,7 +13,12 @@ import { assignHeadingIdsAndBuildToc } from "./headings.js";
 import { deriveTextMetrics } from "./metrics.js";
 import { serializeNormalizedHtml } from "./normalize.js";
 import { prepareCodeHighlightRanges, transformAdvancedHtml } from "./plugins/advanced.js";
-import { enforceIframePolicy, sanitizeSchema } from "./sanitize.js";
+import {
+  collectTrustedMarkup,
+  enforceIframePolicy,
+  restoreTrustedMarkup,
+  sanitizeSchema
+} from "./sanitize.js";
 import type { RenderOptions, RenderedDocument } from "./types.js";
 
 export async function renderDocument(source: string, options: RenderOptions = {}): Promise<RenderedDocument> {
@@ -42,11 +47,13 @@ export async function renderDocument(source: string, options: RenderOptions = {}
   const assetDiscovery = discoverImageAssets(tree, options);
   diagnostics.push(...assetDiscovery.diagnostics);
   prepareCodeHighlightRanges(tree, diagnostics);
+  const trustedMarkup = collectTrustedMarkup(tree);
   const transformed = await unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(() => tree => enforceIframePolicy(tree, diagnostics))
     .use(rehypeSanitize, sanitizeSchema)
+    .use(() => tree => restoreTrustedMarkup(tree, trustedMarkup))
     .use(rehypeKatex)
     .use(rehypeHighlight, { plainText: ["mermaid"] })
     .use(() => transformAdvancedHtml)
