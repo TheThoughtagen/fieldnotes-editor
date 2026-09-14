@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("package contract", () => {
@@ -22,5 +22,16 @@ describe("package contract", () => {
     expect(pkg.scripts.build).not.toContain("tsup");
     expect(pkg.scripts["build:node"]).toContain("--sourcemap");
     expect(pkg.scripts["build:browser"]).toContain("--sourcemap");
+  });
+
+  it("emits every exported import, type, and stylesheet target", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    const targets = Object.values(pkg.exports).flatMap((entry) =>
+      typeof entry === "string" ? [entry] : Object.values(entry)
+    );
+
+    await Promise.all(targets.map((target) =>
+      access(new URL(`../${target.slice(2)}`, import.meta.url))
+    ));
   });
 });
