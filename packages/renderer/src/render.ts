@@ -15,6 +15,7 @@ import { serializeNormalizedHtml } from "./normalize.js";
 import { prepareCodeHighlightRanges, transformAdvancedHtml } from "./plugins/advanced.js";
 import {
   collectTrustedMarkup,
+  collectTrustedRenderedMarkup,
   enforceIframePolicy,
   restoreTrustedMarkup,
   sanitizeSchema
@@ -50,6 +51,7 @@ export async function renderDocument(source: string, options: RenderOptions = {}
   const trustedMarkup = collectTrustedMarkup(tree);
   const transformed = await unified()
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(() => tree => collectTrustedRenderedMarkup(tree, trustedMarkup))
     .use(rehypeRaw)
     .use(() => tree => enforceIframePolicy(tree, diagnostics))
     .use(rehypeSanitize, sanitizeSchema)

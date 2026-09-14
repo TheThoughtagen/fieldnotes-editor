@@ -61,6 +61,27 @@ describe("hostile document input", () => {
   });
 });
 
+describe("trusted footnote references", () => {
+  it("keeps every fragment and aria-describedby reference connected to an exact ID", async () => {
+    const result = await renderDocument(`First[^shared], repeated[^shared], and second[^other].
+
+[^shared]: Shared evidence.
+[^other]: Other evidence.
+`);
+    const ids = new Set([...result.html.matchAll(/\sid="([^"]+)"/gu)].map(match => match[1]));
+    const fragments = [...result.html.matchAll(/\shref="#([^"]+)"/gu)].map(match => match[1]);
+    const describedBy = [...result.html.matchAll(/\saria-describedby="([^"]+)"/gu)]
+      .flatMap(match => match[1].split(/\s+/u));
+
+    expect(fragments.length).toBeGreaterThanOrEqual(5);
+    expect(describedBy.length).toBe(3);
+    for (const target of [...fragments, ...describedBy]) {
+      expect(ids, `missing exact target for ${target}`).toContain(target);
+    }
+    expect(result.html).not.toContain("user-content-user-content-");
+  });
+});
+
 describe("iframe allowlist", () => {
   it.each([
     "https://www.youtube-nocookie.com/embed/abc-123",

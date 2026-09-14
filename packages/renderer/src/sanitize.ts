@@ -19,6 +19,12 @@ type MarkdownNode = HastNode & {
 export type TrustedMarkup = {
   ids: Map<string, string>;
   highlightLines: Map<string, string>;
+  footnoteReferences: Map<string, Record<string, unknown>>;
+  footnoteSection?: {
+    labelId?: string;
+    definitionIds: string[];
+    backreferenceHrefs: string[];
+  };
 };
 
 const iframeHosts = new Map([
@@ -44,9 +50,42 @@ const safeExplicitId = /^[A-Za-z][A-Za-z0-9._:-]*$/u;
 const explicitAnchor = /^<a\s+id=(['"])([^'"]+)\1\s*><\/a>\s*$/iu;
 
 export function collectTrustedMarkup(tree: unknown): TrustedMarkup {
-  const trusted: TrustedMarkup = { ids: new Map(), highlightLines: new Map() };
+  const trusted: TrustedMarkup = {
+    ids: new Map(),
+    highlightLines: new Map(),
+    footnoteReferences: new Map()
+  };
   collectMarkdown(tree, trusted);
   return trusted;
+}
+
+export function collectTrustedRenderedMarkup(tree: unknown, trusted: TrustedMarkup): void {
+  visitNodes(tree, node => {
+    if (node.tagName === "a" && node.properties?.dataFootnoteRef !== undefined) {
+      trusted.footnoteReferences.set(positionKey("a", node), {
+        ariaDescribedBy: node.properties.ariaDescribedBy,
+        href: node.properties.href,
+        id: node.properties.id
+      });
+    }
+    if (node.tagName === "section" && node.properties?.dataFootnotes !== undefined
+      && node.position === undefined) {
+      const definitionIds: string[] = [];
+      const backreferenceHrefs: string[] = [];
+      let labelId: string | undefined;
+      visitNodes(node, descendant => {
+        if (descendant.tagName === "h2" && typeof descendant.properties?.id === "string") {
+          labelId = descendant.properties.id;
+        } else if (descendant.tagName === "li" && typeof descendant.properties?.id === "string") {
+          definitionIds.push(descendant.properties.id);
+        } else if (descendant.tagName === "a" && descendant.properties?.dataFootnoteBackref !== undefined
+          && typeof descendant.properties.href === "string") {
+          backreferenceHrefs.push(descendant.properties.href);
+        }
+      });
+      trusted.footnoteSection = { labelId, definitionIds, backreferenceHrefs };
+    }
+  });
 }
 
 export function restoreTrustedMarkup(tree: unknown, trusted: TrustedMarkup): void {
@@ -57,12 +96,47 @@ export function restoreTrustedMarkup(tree: unknown, trusted: TrustedMarkup): voi
     const key = positionKey(node.tagName, node);
     const id = trusted.ids.get(key);
     const highlightLines = trusted.highlightLines.get(key);
+    const footnoteReference = trusted.footnoteReferences.get(key);
     if (id !== undefined) {
       node.properties = { ...node.properties, id };
     }
     if (highlightLines !== undefined) {
       node.properties = { ...node.properties, dataHighlightLines: highlightLines };
     }
+    if (footnoteReference !== undefined) {
+      node.properties = { ...node.properties, ...footnoteReference };
+    }
+  });
+  restoreFootnoteSection(tree, trusted.footnoteSection);
+}
+
+function restoreFootnoteSection(
+  tree: unknown,
+  trusted: TrustedMarkup["footnoteSection"]
+): void {
+  if (trusted === undefined) {
+    return;
+  }
+  visitNodes(tree, node => {
+    if (node.tagName !== "section" || node.properties?.dataFootnotes === undefined
+      || node.position !== undefined) {
+      return;
+    }
+    let definitionIndex = 0;
+    let backreferenceIndex = 0;
+    visitNodes(node, descendant => {
+      if (descendant.tagName === "h2" && trusted.labelId !== undefined) {
+        descendant.properties = { ...descendant.properties, id: trusted.labelId };
+      } else if (descendant.tagName === "li" && definitionIndex < trusted.definitionIds.length) {
+        descendant.properties = { ...descendant.properties, id: trusted.definitionIds[definitionIndex++] };
+      } else if (descendant.tagName === "a" && descendant.properties?.dataFootnoteBackref !== undefined
+        && backreferenceIndex < trusted.backreferenceHrefs.length) {
+        descendant.properties = {
+          ...descendant.properties,
+          href: trusted.backreferenceHrefs[backreferenceIndex++]
+        };
+      }
+    });
   });
 }
 
