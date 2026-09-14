@@ -1,2 +1,12 @@
 export { extractFrontmatter, validateFrontmatter } from "./frontmatter.js";
-export type { FrontmatterResult, JsonSchema, RenderDiagnostic, SourcePosition } from "./types.js";
+export { renderDocument } from "./render.js";
+export type {
+  AssetReference,
+  FrontmatterResult,
+  Heading,
+  JsonSchema,
+  RenderDiagnostic,
+  RenderedDocument,
+  RenderOptions,
+  SourcePosition
+} from "./types.js";
