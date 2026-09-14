@@ -1,10 +1,13 @@
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import { extractFrontmatter, validateFrontmatter } from "./frontmatter.js";
+import { discoverImageAssets } from "./assets.js";
 import { assignHeadingIdsAndBuildToc } from "./headings.js";
+import { deriveTextMetrics } from "./metrics.js";
 import type { RenderOptions, RenderedDocument } from "./types.js";
 
 export async function renderDocument(source: string, options: RenderOptions = {}): Promise<RenderedDocument> {
@@ -15,9 +18,23 @@ export async function renderDocument(source: string, options: RenderOptions = {}
       ? []
       : validateFrontmatter(frontmatter.data, options.frontmatterSchema))
   ];
-  const parser = unified().use(remarkParse).use(remarkGfm);
+  const wordsPerMinute = options.wordsPerMinute;
+  const validWordsPerMinute = wordsPerMinute === undefined
+    || (Number.isFinite(wordsPerMinute) && wordsPerMinute > 0);
+  if (!validWordsPerMinute) {
+    diagnostics.push({
+      code: "options.words-per-minute",
+      message: "wordsPerMinute must be a finite positive number; using 220.",
+      severity: "warning"
+    });
+  }
+
+  const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
   const tree = parser.parse(frontmatter.body);
   const toc = assignHeadingIdsAndBuildToc(tree);
+  const metrics = deriveTextMetrics(tree, validWordsPerMinute ? (wordsPerMinute ?? 220) : 220);
+  const assetDiscovery = discoverImageAssets(tree, options);
+  diagnostics.push(...assetDiscovery.diagnostics);
   const transformed = await unified().use(remarkRehype).run(tree);
   const html = String(unified().use(rehypeStringify).stringify(transformed));
 
@@ -27,9 +44,7 @@ export async function renderDocument(source: string, options: RenderOptions = {}
     toc,
     frontmatter: frontmatter.data,
     diagnostics,
-    assets: [],
-    plainText: "",
-    wordCount: 0,
-    readingMinutes: 1
+    assets: assetDiscovery.assets,
+    ...metrics
   };
 }

@@ -56,8 +56,10 @@ title: Renderer Demo
     expect(result.frontmatter).toEqual({ title: "Renderer Demo" });
     expect(result.diagnostics).toEqual([]);
     expect(result.assets).toEqual([]);
-    expect(result.plainText).toBe("");
-    expect(result.wordCount).toBe(0);
+    expect(result.plainText).toBe(
+      "Title outside the TOC Unscoped Observe Compare Observe Supporting detail Signal Meaning old docs and https://example.test Finished"
+    );
+    expect(result.wordCount).toBe(17);
     expect(result.readingMinutes).toBe(1);
   });
 
