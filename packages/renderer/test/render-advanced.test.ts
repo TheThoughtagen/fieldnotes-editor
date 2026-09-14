@@ -100,10 +100,11 @@ describe("advanced Markdown rendering", () => {
     expect(result.toc[0]).toMatchObject({ id: "hello-visible-world", text: "Hello visible world" });
   });
 
-  it("keeps Mermaid source inert for the later hydration task", async () => {
+  it("keeps Mermaid source inert for trusted browser hydration", async () => {
     const result = await renderDocument("```mermaid\nflowchart LR\nA-->B\n```\n");
 
-    expect(result.html).toContain('class="language-mermaid"');
+    expect(result.html).toContain('class="fieldnotes-mermaid"');
+    expect(result.html).toMatch(/data-fieldnotes-mermaid="sha256:[a-f0-9]{64}"/u);
     expect(result.html).toContain("flowchart LR");
     expect(result.html).not.toContain("<svg");
     expect(result.plainText).toBe("");

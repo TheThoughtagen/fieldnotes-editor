@@ -12,6 +12,7 @@ import { discoverImageAssets } from "./assets.js";
 import { assignHeadingIdsAndBuildToc } from "./headings.js";
 import { deriveTextMetrics } from "./metrics.js";
 import { serializeNormalizedHtml } from "./normalize.js";
+import { transformMermaidPlaceholders } from "./mermaid.js";
 import { prepareCodeHighlightRanges, transformAdvancedHtml } from "./plugins/advanced.js";
 import {
   collectTrustedMarkup,
@@ -59,6 +60,7 @@ export async function renderDocument(source: string, options: RenderOptions = {}
     .use(rehypeKatex)
     .use(rehypeHighlight, { plainText: ["mermaid"] })
     .use(() => transformAdvancedHtml)
+    .use(() => transformMermaidPlaceholders)
     .run(tree);
   const html = serializeNormalizedHtml(transformed);
 
