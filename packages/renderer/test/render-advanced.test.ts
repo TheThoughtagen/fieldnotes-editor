@@ -70,7 +70,7 @@ describe("advanced Markdown rendering", () => {
     expect(titled.html).toContain("<figure>");
     expect(titled.html).toContain("<figcaption>Gateway status</figcaption>");
     expect(titled.assets[0]).toMatchObject({ source: "images/panel.png", title: "Gateway status" });
-    expect(untitled.html).toBe('<p><img src="images/panel.png" alt="Panel"></p>');
+    expect(untitled.html).toBe('<p><img alt="Panel" src="images/panel.png"></p>');
     expect(untitled.html).not.toContain("<figure>");
   });
 

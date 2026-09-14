@@ -5,13 +5,15 @@ import remarkRehype from "remark-rehype";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
-import rehypeStringify from "rehype-stringify";
+import rehypeSanitize from "rehype-sanitize";
 import { unified } from "unified";
 import { extractFrontmatter, validateFrontmatter } from "./frontmatter.js";
 import { discoverImageAssets } from "./assets.js";
 import { assignHeadingIdsAndBuildToc } from "./headings.js";
 import { deriveTextMetrics } from "./metrics.js";
+import { serializeNormalizedHtml } from "./normalize.js";
 import { prepareCodeHighlightRanges, transformAdvancedHtml } from "./plugins/advanced.js";
+import { enforceIframePolicy, sanitizeSchema } from "./sanitize.js";
 import type { RenderOptions, RenderedDocument } from "./types.js";
 
 export async function renderDocument(source: string, options: RenderOptions = {}): Promise<RenderedDocument> {
@@ -43,11 +45,13 @@ export async function renderDocument(source: string, options: RenderOptions = {}
   const transformed = await unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(() => tree => enforceIframePolicy(tree, diagnostics))
+    .use(rehypeSanitize, sanitizeSchema)
     .use(rehypeKatex)
     .use(rehypeHighlight, { plainText: ["mermaid"] })
     .use(() => transformAdvancedHtml)
     .run(tree);
-  const html = String(unified().use(rehypeStringify).stringify(transformed));
+  const html = serializeNormalizedHtml(transformed);
 
   return {
     html,

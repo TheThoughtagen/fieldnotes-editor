@@ -51,7 +51,7 @@ title: Renderer Demo
     expect(result.html).toContain("<del>old</del>");
     expect(result.html).toContain('<a href="https://example.com">docs</a>');
     expect(result.html).toContain('<a href="https://example.test">https://example.test</a>');
-    expect(result.html).toContain('type="checkbox" checked disabled');
+    expect(result.html).toContain('checked disabled type="checkbox"');
     expect(result.normalizedHtml).toBe(result.html);
     expect(result.frontmatter).toEqual({ title: "Renderer Demo" });
     expect(result.diagnostics).toEqual([]);
