@@ -2,12 +2,16 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
+import rehypeHighlight from "rehype-highlight";
+import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
 import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import { extractFrontmatter, validateFrontmatter } from "./frontmatter.js";
 import { discoverImageAssets } from "./assets.js";
 import { assignHeadingIdsAndBuildToc } from "./headings.js";
 import { deriveTextMetrics } from "./metrics.js";
+import { prepareCodeHighlightRanges, transformAdvancedHtml } from "./plugins/advanced.js";
 import type { RenderOptions, RenderedDocument } from "./types.js";
 
 export async function renderDocument(source: string, options: RenderOptions = {}): Promise<RenderedDocument> {
@@ -31,11 +35,18 @@ export async function renderDocument(source: string, options: RenderOptions = {}
 
   const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
   const tree = parser.parse(frontmatter.body);
-  const toc = assignHeadingIdsAndBuildToc(tree);
+  const toc = assignHeadingIdsAndBuildToc(tree, diagnostics);
   const metrics = deriveTextMetrics(tree, validWordsPerMinute ? (wordsPerMinute ?? 220) : 220);
   const assetDiscovery = discoverImageAssets(tree, options);
   diagnostics.push(...assetDiscovery.diagnostics);
-  const transformed = await unified().use(remarkRehype).run(tree);
+  prepareCodeHighlightRanges(tree, diagnostics);
+  const transformed = await unified()
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeKatex)
+    .use(rehypeHighlight, { plainText: ["mermaid"] })
+    .use(() => transformAdvancedHtml)
+    .run(tree);
   const html = String(unified().use(rehypeStringify).stringify(transformed));
 
   return {
