@@ -21,9 +21,11 @@ export type TrustedMarkup = {
   highlightLines: Map<string, string>;
   footnoteReferences: Map<string, Record<string, unknown>>;
   footnoteSection?: {
-    labelId?: string;
-    definitionIds: string[];
-    backreferenceHrefs: string[];
+    nodes: Array<{
+      pathFromEnd: number[];
+      tagName: string;
+      properties: Record<string, unknown>;
+    }>;
   };
 };
 
@@ -70,21 +72,36 @@ export function collectTrustedRenderedMarkup(tree: unknown, trusted: TrustedMark
     }
     if (node.tagName === "section" && node.properties?.dataFootnotes !== undefined
       && node.position === undefined) {
-      const definitionIds: string[] = [];
-      const backreferenceHrefs: string[] = [];
-      let labelId: string | undefined;
-      visitNodes(node, descendant => {
-        if (descendant.tagName === "h2" && typeof descendant.properties?.id === "string") {
-          labelId = descendant.properties.id;
-        } else if (descendant.tagName === "li" && typeof descendant.properties?.id === "string") {
-          definitionIds.push(descendant.properties.id);
-        } else if (descendant.tagName === "a" && descendant.properties?.dataFootnoteBackref !== undefined
-          && typeof descendant.properties.href === "string") {
-          backreferenceHrefs.push(descendant.properties.href);
-        }
-      });
-      trusted.footnoteSection = { labelId, definitionIds, backreferenceHrefs };
+      const nodes: NonNullable<TrustedMarkup["footnoteSection"]>["nodes"] = [];
+      collectFootnoteNodes(node, [], nodes);
+      trusted.footnoteSection = { nodes };
     }
+  });
+}
+
+function collectFootnoteNodes(
+  node: HastNode,
+  pathFromEnd: number[],
+  nodes: NonNullable<TrustedMarkup["footnoteSection"]>["nodes"]
+): void {
+  const id = typeof node.properties?.id === "string" ? node.properties.id : undefined;
+  const href = node.tagName === "a" && node.properties?.dataFootnoteBackref !== undefined
+    && typeof node.properties.href === "string"
+    ? node.properties.href
+    : undefined;
+  if (id !== undefined || href !== undefined) {
+    nodes.push({
+      pathFromEnd,
+      tagName: node.tagName ?? "",
+      properties: {
+        ...(id === undefined ? {} : { id }),
+        ...(href === undefined ? {} : { href })
+      }
+    });
+  }
+  const children = node.children ?? [];
+  children.forEach((child, index) => {
+    collectFootnoteNodes(child, [...pathFromEnd, children.length - index - 1], nodes);
   });
 }
 
@@ -122,22 +139,26 @@ function restoreFootnoteSection(
       || node.position !== undefined) {
       return;
     }
-    let definitionIndex = 0;
-    let backreferenceIndex = 0;
-    visitNodes(node, descendant => {
-      if (descendant.tagName === "h2" && trusted.labelId !== undefined) {
-        descendant.properties = { ...descendant.properties, id: trusted.labelId };
-      } else if (descendant.tagName === "li" && definitionIndex < trusted.definitionIds.length) {
-        descendant.properties = { ...descendant.properties, id: trusted.definitionIds[definitionIndex++] };
-      } else if (descendant.tagName === "a" && descendant.properties?.dataFootnoteBackref !== undefined
-        && backreferenceIndex < trusted.backreferenceHrefs.length) {
-        descendant.properties = {
-          ...descendant.properties,
-          href: trusted.backreferenceHrefs[backreferenceIndex++]
-        };
+    for (const trustedNode of trusted.nodes) {
+      const descendant = nodeAtReversePath(node, trustedNode.pathFromEnd);
+      if (descendant?.tagName === trustedNode.tagName) {
+        descendant.properties = { ...descendant.properties, ...trustedNode.properties };
       }
-    });
+    }
   });
+}
+
+function nodeAtReversePath(node: HastNode, pathFromEnd: number[]): HastNode | undefined {
+  let current = node;
+  for (const indexFromEnd of pathFromEnd) {
+    const children = current.children ?? [];
+    const next = children[children.length - indexFromEnd - 1];
+    if (next === undefined) {
+      return undefined;
+    }
+    current = next;
+  }
+  return current;
 }
 
 function collectMarkdown(value: unknown, trusted: TrustedMarkup): void {

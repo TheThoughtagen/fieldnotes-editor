@@ -80,6 +80,34 @@ describe("trusted footnote references", () => {
     }
     expect(result.html).not.toContain("user-content-user-content-");
   });
+
+  it("restores only generated footer nodes when definitions contain nested and spoofed markup", async () => {
+    const result = await renderDocument(`First[^one] and second[^two].
+
+[^one]: First paragraph.
+
+    - nested item
+
+    ## heading inside definition
+
+    <a data-footnote-backref href="#user-content-fnref-two">raw spoof</a>
+
+[^two]: Second paragraph.
+`);
+    const ids = [...result.html.matchAll(/\sid="([^"]+)"/gu)].map(match => match[1]);
+    const idSet = new Set(ids);
+    const fragments = [...result.html.matchAll(/\shref="#([^"]+)"/gu)].map(match => match[1]);
+    const describedBy = [...result.html.matchAll(/\saria-describedby="([^"]+)"/gu)]
+      .flatMap(match => match[1].split(/\s+/u));
+
+    expect(ids).toHaveLength(idSet.size);
+    for (const target of [...fragments, ...describedBy]) {
+      expect(idSet, `missing exact target for ${target}`).toContain(target);
+    }
+    expect(result.html).toContain('data-footnote-backref="" href="#user-content-fnref-two">raw spoof</a>');
+    expect(result.html).toContain('<ul>\n<li>nested item</li>');
+    expect(result.html).toContain('>heading inside definition</h2>');
+  });
 });
 
 describe("iframe allowlist", () => {
