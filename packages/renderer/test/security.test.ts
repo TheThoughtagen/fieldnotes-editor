@@ -108,6 +108,36 @@ describe("trusted footnote references", () => {
     expect(result.html).toContain('<ul>\n<li>nested item</li>');
     expect(result.html).toContain('>heading inside definition</h2>');
   });
+
+  it("does not restore ordinary definition headings through footer structural paths", async () => {
+    const result = await renderDocument(`Reference[^one] and another[^two].
+
+[^one]: Before expansion.
+
+    <script>removed before the nested heading</script>
+
+    ## nested trusted heading
+
+    <h2 id="raw-one">expanded one</h2><h2 id="raw-two">expanded two</h2><h2 id="raw-three">expanded three</h2><script>removed after the nested heading</script>
+
+[^two]: Other definition.
+`);
+    const ids = [...result.html.matchAll(/\sid="([^"]+)"/gu)].map(match => match[1]);
+    const idSet = new Set(ids);
+    const fragments = [...result.html.matchAll(/\shref="#([^"]+)"/gu)].map(match => match[1]);
+    const describedBy = [...result.html.matchAll(/\saria-describedby="([^"]+)"/gu)]
+      .flatMap(match => match[1].split(/\s+/u));
+
+    expect(result.html).toContain(">expanded one</h2><h2");
+    expect(result.html).toContain(">expanded two</h2>");
+    expect(result.html).toContain(">expanded three</h2>");
+    expect(result.html).not.toContain("<script");
+    expect(result.html).toContain('<h2 id="nested-trusted-heading">nested trusted heading</h2>');
+    expect(ids).toHaveLength(idSet.size);
+    for (const target of [...fragments, ...describedBy]) {
+      expect(idSet, `missing exact target for ${target}`).toContain(target);
+    }
+  });
 });
 
 describe("iframe allowlist", () => {

@@ -73,35 +73,57 @@ export function collectTrustedRenderedMarkup(tree: unknown, trusted: TrustedMark
     if (node.tagName === "section" && node.properties?.dataFootnotes !== undefined
       && node.position === undefined) {
       const nodes: NonNullable<TrustedMarkup["footnoteSection"]>["nodes"] = [];
-      collectFootnoteNodes(node, [], nodes);
+      collectFootnoteInfrastructure(node, nodes);
       trusted.footnoteSection = { nodes };
     }
   });
 }
 
-function collectFootnoteNodes(
+function collectFootnoteInfrastructure(
+  section: HastNode,
+  nodes: NonNullable<TrustedMarkup["footnoteSection"]>["nodes"]
+): void {
+  const sectionChildren = section.children ?? [];
+  sectionChildren.forEach((child, sectionIndex) => {
+    const sectionPath = [sectionChildren.length - sectionIndex - 1];
+    if (child.tagName === "h2" && child.position === undefined
+      && typeof child.properties?.id === "string") {
+      nodes.push({ pathFromEnd: sectionPath, tagName: "h2", properties: { id: child.properties.id } });
+      return;
+    }
+    if (child.tagName !== "ol" || child.position !== undefined) {
+      return;
+    }
+    const definitions = child.children ?? [];
+    definitions.forEach((definition, definitionIndex) => {
+      if (definition.tagName !== "li" || typeof definition.properties?.id !== "string") {
+        return;
+      }
+      const definitionPath = [...sectionPath, definitions.length - definitionIndex - 1];
+      nodes.push({
+        pathFromEnd: definitionPath,
+        tagName: "li",
+        properties: { id: definition.properties.id }
+      });
+      collectGeneratedBackreferences(definition, definitionPath, nodes);
+    });
+  });
+}
+
+function collectGeneratedBackreferences(
   node: HastNode,
   pathFromEnd: number[],
   nodes: NonNullable<TrustedMarkup["footnoteSection"]>["nodes"]
 ): void {
-  const id = typeof node.properties?.id === "string" ? node.properties.id : undefined;
-  const href = node.tagName === "a" && node.properties?.dataFootnoteBackref !== undefined
-    && typeof node.properties.href === "string"
-    ? node.properties.href
-    : undefined;
-  if (id !== undefined || href !== undefined) {
-    nodes.push({
-      pathFromEnd,
-      tagName: node.tagName ?? "",
-      properties: {
-        ...(id === undefined ? {} : { id }),
-        ...(href === undefined ? {} : { href })
-      }
-    });
-  }
   const children = node.children ?? [];
   children.forEach((child, index) => {
-    collectFootnoteNodes(child, [...pathFromEnd, children.length - index - 1], nodes);
+    const childPath = [...pathFromEnd, children.length - index - 1];
+    if (child.tagName === "a" && child.position === undefined
+      && child.properties?.dataFootnoteBackref !== undefined
+      && typeof child.properties.href === "string") {
+      nodes.push({ pathFromEnd: childPath, tagName: "a", properties: { href: child.properties.href } });
+    }
+    collectGeneratedBackreferences(child, childPath, nodes);
   });
 }
 
