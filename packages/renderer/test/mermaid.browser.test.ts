@@ -8,18 +8,34 @@ describe("trusted Mermaid hydration", () => {
     const first = document.createElement("div");
     const second = document.createElement("div");
     for (const container of [first, second]) {
-      container.innerHTML = `<pre class="fieldnotes-mermaid" data-fieldnotes-mermaid="sha256:${digest}">graph TD; A--&gt;B</pre>`;
+      container.innerHTML = `<pre class="fieldnotes-mermaid" data-fieldnotes-mermaid="sha256:${digest}">graph TD; A--&gt;B</pre><pre class="fieldnotes-mermaid" data-fieldnotes-mermaid="sha256:${digest}">graph TD; A--&gt;B</pre>`;
       document.body.append(container);
     }
 
     const firstResult = await hydrateMermaid(first);
     const secondResult = await hydrateMermaid(second);
 
-    expect(firstResult).toEqual([expect.objectContaining({ status: "rendered" })]);
-    expect(secondResult).toEqual([expect.objectContaining({ status: "rendered" })]);
+    expect(firstResult).toEqual([
+      { hash: `sha256:${digest}`, status: "rendered" },
+      { hash: `sha256:${digest}`, status: "rendered" }
+    ]);
+    expect(secondResult).toEqual(firstResult);
     expect(normalizeRenderedDom(first)).toBe(normalizeRenderedDom(second));
-    expect(first.querySelector("svg")).not.toBeNull();
+    expect(first.querySelectorAll("svg")).toHaveLength(2);
     expect(first.querySelector("script, foreignObject")).toBeNull();
+    const ids = [...first.querySelectorAll<SVGElement>("[id]")].map(element => element.id);
+    const idSet = new Set(ids);
+    const references = [...first.querySelectorAll<SVGElement>("*")].flatMap(element =>
+      [...element.attributes].flatMap(attribute => {
+        const urls = [...attribute.value.matchAll(/url\(#([^)]+)\)/gu)].map(match => match[1]);
+        const fragment = /^(?:href|xlink:href)$/iu.test(attribute.name) && attribute.value.startsWith("#")
+          ? [attribute.value.slice(1)]
+          : [];
+        return [...fragment, ...urls];
+      })
+    );
+    expect(ids).toHaveLength(idSet.size);
+    for (const target of references) expect(idSet).toContain(target);
   });
 
   it("keeps source inert and reports an error when the digest is invalid", async () => {
@@ -28,7 +44,11 @@ describe("trusted Mermaid hydration", () => {
 
     const results = await hydrateMermaid(container);
 
-    expect(results).toEqual([expect.objectContaining({ status: "error", code: "digest-mismatch" })]);
+    expect(results).toEqual([{
+      hash: `sha256:${"0".repeat(64)}`,
+      status: "error",
+      message: "Mermaid source digest does not match placeholder."
+    }]);
     expect(container.querySelector("pre.fieldnotes-mermaid-error")?.textContent).toBe("graph TD; A-->B");
     expect(container.querySelector("svg, script")).toBeNull();
   });
@@ -39,14 +59,14 @@ describe("trusted Mermaid hydration", () => {
     const renderer = {
       initialize: (config: object) => expect(config).toMatchObject({ securityLevel: "strict" }),
       render: async () => ({
-        svg: `<svg id="diagram"><style>.bad{fill:url(https://evil.example/a)}</style><script>alert(1)</script><foreignObject>bad</foreignObject><g id="node" onclick="bad()" style="fill:url(https://evil.example/a)"><a href="https://evil.example"><path fill="url(#node)"></path></a></g></svg>`
+        svg: `<svg id="diagram"><style>@import "https://evil.example/a.css";.safe{fill:url(#node)}</style><script>alert(1)</script><foreignObject>bad</foreignObject><animate attributeName="href" values="#node;https://evil.example/x"></animate><set attributeName="xlink:href" to="https://evil.example/x"></set><g id="node" onclick="bad()" style="fill:url(https://evil.example/a)"><a href="https://evil.example"><path fill="url(#node)"></path></a></g></svg>`
       })
     };
 
     const results = await hydrateMermaid(container, { renderer });
 
-    expect(results).toEqual([expect.objectContaining({ status: "rendered" })]);
-    expect(container.querySelector("script, foreignObject, [onclick]")).toBeNull();
+    expect(results).toEqual([{ hash: `sha256:${digest}`, status: "rendered" }]);
+    expect(container.querySelector("script, foreignObject, animate, set, [onclick]")).toBeNull();
     expect(container.querySelector("a")?.hasAttribute("href")).toBe(false);
     expect(container.querySelector("g")?.hasAttribute("style")).toBe(false);
     expect(container.querySelector("style")).toBeNull();
@@ -63,7 +83,11 @@ describe("trusted Mermaid hydration", () => {
 
     const results = await hydrateMermaid(container, { renderer });
 
-    expect(results).toEqual([expect.objectContaining({ status: "error", code: "render-failed" })]);
+    expect(results).toEqual([{
+      hash: `sha256:${digest}`,
+      status: "error",
+      message: "Mermaid could not render this diagram."
+    }]);
     expect(container.querySelector("pre.fieldnotes-mermaid-error")?.textContent).toBe("graph TD; A-->B");
   });
 });

@@ -1,16 +1,24 @@
-import mermaid from "mermaid";
 import { canonicalMermaidSource, sha256 } from "./mermaid.js";
 
 export type MermaidRenderer = {
-  initialize(config: { startOnLoad: boolean; securityLevel: "strict" }): void;
+  initialize(config: {
+    startOnLoad: boolean;
+    securityLevel: "strict";
+    theme?: "default" | "dark" | "neutral";
+  }): void;
   render(id: string, source: string, container?: HTMLElement): Promise<{ svg: string }>;
 };
 
-export type MermaidHydrationOptions = { renderer?: MermaidRenderer };
+export type MermaidHydrationOptions = {
+  theme?: "default" | "dark" | "neutral";
+  renderer?: MermaidRenderer;
+};
 
-export type MermaidHydrationResult =
-  | { status: "rendered"; digest: string; element: SVGSVGElement }
-  | { status: "error"; code: "invalid-digest" | "digest-mismatch" | "render-failed"; element: HTMLPreElement };
+export type MermaidHydrationResult = {
+  hash: string;
+  status: "rendered" | "error";
+  message?: string;
+};
 
 const digestPattern = /^sha256:([a-f0-9]{64})$/u;
 
@@ -18,29 +26,34 @@ export async function hydrateMermaid(
   root: ParentNode,
   options: MermaidHydrationOptions = {}
 ): Promise<MermaidHydrationResult[]> {
-  const renderer = options.renderer ?? mermaid;
-  renderer.initialize({ startOnLoad: false, securityLevel: "strict" });
+  const renderer = options.renderer ?? (await import("mermaid")).default;
+  renderer.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    ...(options.theme === undefined ? {} : { theme: options.theme })
+  });
   const placeholders = [...root.querySelectorAll<HTMLPreElement>("pre.fieldnotes-mermaid[data-fieldnotes-mermaid]")];
   const results: MermaidHydrationResult[] = [];
   for (const [index, placeholder] of placeholders.entries()) {
     const source = canonicalMermaidSource(placeholder.textContent ?? "");
-    const match = digestPattern.exec(placeholder.dataset.fieldnotesMermaid ?? "");
+    const hash = placeholder.dataset.fieldnotesMermaid ?? "";
+    const match = digestPattern.exec(hash);
     if (match === null) {
-      results.push(errorResult(placeholder, source, "invalid-digest"));
+      results.push(errorResult(placeholder, source, hash, "Mermaid placeholder has an invalid digest."));
       continue;
     }
     if (await sha256(source) !== match[1]) {
-      results.push(errorResult(placeholder, source, "digest-mismatch"));
+      results.push(errorResult(placeholder, source, hash, "Mermaid source digest does not match placeholder."));
       continue;
     }
     try {
       const renderId = `fieldnotes-mermaid-${match[1].slice(0, 16)}-${index}`;
       const { svg } = await renderer.render(renderId, source, placeholder);
-      const element = parseAndSanitizeSvg(svg, match[1]);
+      const element = parseAndSanitizeSvg(svg, `${match[1].slice(0, 12)}-${index}`);
       placeholder.replaceWith(element);
-      results.push({ status: "rendered", digest: `sha256:${match[1]}`, element });
+      results.push({ hash, status: "rendered" });
     } catch {
-      results.push(errorResult(placeholder, source, "render-failed"));
+      results.push(errorResult(placeholder, source, hash, "Mermaid could not render this diagram."));
     }
   }
   return results;
@@ -65,34 +78,38 @@ export function normalizeRenderedDom(root: ParentNode): string {
 function errorResult(
   placeholder: HTMLPreElement,
   source: string,
-  code: Extract<MermaidHydrationResult, { status: "error" }>["code"]
+  hash: string,
+  message: string
 ): MermaidHydrationResult {
   const error = document.createElement("pre");
   error.className = "fieldnotes-mermaid-error";
   error.textContent = source;
   placeholder.replaceWith(error);
-  return { status: "error", code, element: error };
+  return { hash, status: "error", message };
 }
 
-function parseAndSanitizeSvg(source: string, digest: string): SVGSVGElement {
+function parseAndSanitizeSvg(source: string, namespace: string): SVGSVGElement {
   const template = document.createElement("template");
   template.innerHTML = source;
   const svg = template.content.querySelector("svg");
   if (!(svg instanceof SVGSVGElement)) throw new TypeError("Mermaid did not return an SVG element.");
+  const forbiddenElements = new Set([
+    "animate", "animatemotion", "animatetransform", "discard", "foreignobject", "script", "set"
+  ]);
   for (const element of [...svg.querySelectorAll("*")]) {
     const tag = element.localName.toLowerCase();
-    if (tag === "script" || tag === "foreignobject") element.remove();
+    if (forbiddenElements.has(tag)) element.remove();
   }
   const idMap = new Map<string, string>();
   [svg, ...svg.querySelectorAll<SVGElement>("[id]")].filter(element => element.hasAttribute("id"))
     .forEach((element, index) => {
-    const original = element.id;
-    const normalized = `fieldnotes-${digest.slice(0, 12)}-${index}`;
-    idMap.set(original, normalized);
-    element.id = normalized;
+      const original = element.id;
+      const normalized = `fieldnotes-${namespace}-${index}`;
+      idMap.set(original, normalized);
+      element.id = normalized;
     });
   for (const style of [...svg.querySelectorAll("style")]) {
-    if (hasExternalUrl(style.textContent ?? "")) {
+    if (hasExternalCss(style.textContent ?? "", true)) {
       style.remove();
       continue;
     }
@@ -119,7 +136,7 @@ function sanitizeElement(element: Element, idMap: Map<string, string>): void {
       element.removeAttribute(attribute.name);
       continue;
     }
-    if (hasExternalUrl(value)) {
+    if (hasExternalCss(value)) {
       element.removeAttribute(attribute.name);
       continue;
     }
@@ -136,7 +153,9 @@ function sanitizeElement(element: Element, idMap: Map<string, string>): void {
   [...element.children].forEach(child => sanitizeElement(child, idMap));
 }
 
-function hasExternalUrl(value: string): boolean {
+function hasExternalCss(value: string, allowKeyframes = false): boolean {
+  const remainingAtRules = allowKeyframes ? value.replace(/@keyframes\b/giu, "") : value;
+  if (remainingAtRules.includes("@")) return true;
   const urls = [...value.matchAll(/url\(\s*['"]?([^)'"\s]+)['"]?\s*\)/giu)];
   return urls.some(match => !match[1].startsWith("#"));
 }
@@ -145,7 +164,7 @@ function normalizeElementTree(element: Element): void {
   for (const child of [...element.children]) normalizeElementTree(child);
   const attributes = [...element.attributes]
     .map(attribute => [attribute.name, attribute.value] as const)
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   for (const attribute of [...element.attributes]) element.removeAttribute(attribute.name);
   for (const [name, value] of attributes) element.setAttribute(name, value);
 }
