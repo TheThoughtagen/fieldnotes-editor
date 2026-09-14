@@ -41,6 +41,28 @@ describe("advanced Markdown rendering", () => {
     }
   );
 
+  it.each([
+    "{4}",
+    "{1-999999999}",
+    "{9007199254740992}",
+    "{999999999999999999999999999999999999999999999999999999999999}"
+  ])("rejects out-of-line or unsafe highlight metadata %s before expansion", async meta => {
+    const result = await renderDocument(`\`\`\`javascript ${meta}\none();\ntwo();\nthree();\n\`\`\`\n`);
+
+    expect(result.html).not.toContain("data-highlighted-line");
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: "code.highlight-range",
+      severity: "warning"
+    }));
+  });
+
+  it("accepts a range ending on the actual last code line", async () => {
+    const result = await renderDocument("```javascript {2-3}\none();\ntwo();\nthree();\n```\n");
+
+    expect(result.html.match(/data-highlighted-line="true"/g)).toHaveLength(2);
+    expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "code.highlight-range" }));
+  });
+
   it("turns titled images into figures without changing asset metadata", async () => {
     const titled = await renderDocument('![Panel](images/panel.png "Gateway status")');
     const untitled = await renderDocument("![Panel](images/panel.png)");

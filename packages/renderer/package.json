@@ -10,7 +10,7 @@
     "build": "npm run clean && npm run build:conformance && npm run build:types && npm run build:node && npm run build:browser && npm run build:css",
     "build:conformance": "node scripts/build-conformance.mjs",
     "build:types": "tsc --emitDeclarationOnly",
-    "build:node": "esbuild src/index.ts src/conformance.ts --bundle --platform=node --format=esm --target=node24 --sourcemap --outdir=dist",
+    "build:node": "esbuild src/index.ts src/conformance.ts --bundle --packages=external --platform=node --format=esm --target=node24 --sourcemap --outdir=dist",
     "build:browser": "esbuild src/browser.ts --bundle --platform=browser --format=esm --target=safari17 --sourcemap --outfile=dist/browser.js",
     "build:css": "cp src/styles.css dist/styles.css",
     "typecheck": "tsc --noEmit",

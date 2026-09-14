@@ -21,7 +21,20 @@ describe("package contract", () => {
     expect(pkg.scripts["build:types"]).toBe("tsc --emitDeclarationOnly");
     expect(pkg.scripts.build).not.toContain("tsup");
     expect(pkg.scripts["build:node"]).toContain("--sourcemap");
+    expect(pkg.scripts["build:node"]).toContain("--packages=external");
     expect(pkg.scripts["build:browser"]).toContain("--sourcemap");
+  });
+
+  it("imports every built JavaScript export and renders through dist", async () => {
+    const nodeEntry = await import(new URL("../dist/index.js", import.meta.url).href);
+    const browserEntry = await import(new URL("../dist/browser.js", import.meta.url).href);
+    const conformanceEntry = await import(new URL("../dist/conformance.js", import.meta.url).href);
+
+    expect(browserEntry).toBeTypeOf("object");
+    expect(conformanceEntry).toBeTypeOf("object");
+    const rendered = await nodeEntry.renderDocument("---\ntitle: Built\n---\n## Works\n");
+    expect(rendered.toc).toEqual([{ depth: 2, id: "works", text: "Works", children: [] }]);
+    expect(rendered.html).toContain('<h2 id="works">Works</h2>');
   });
 
   it("emits every exported import, type, and stylesheet target", async () => {

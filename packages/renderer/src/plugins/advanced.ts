@@ -4,6 +4,7 @@ type Node = {
   type: string;
   lang?: string | null;
   meta?: string | null;
+  value?: string;
   children?: unknown[];
   data?: { hProperties?: Record<string, unknown> };
 };
@@ -22,7 +23,8 @@ export function prepareCodeHighlightRanges(tree: unknown, diagnostics: RenderDia
       return;
     }
 
-    const highlighted = parseHighlightRanges(node.meta);
+    const lineCount = node.value === "" || node.value === undefined ? 0 : node.value.split("\n").length;
+    const highlighted = parseHighlightRanges(node.meta, lineCount);
     if (highlighted === undefined) {
       diagnostics.push({
         code: "code.highlight-range",
@@ -55,7 +57,7 @@ export function transformAdvancedHtml(tree: unknown): void {
   transformFigures(tree);
 }
 
-function parseHighlightRanges(meta: string): Set<number> | undefined {
+function parseHighlightRanges(meta: string, lineCount: number): Set<number> | undefined {
   const match = /^\{([^{}]+)\}$/u.exec(meta.trim());
   if (match === null) {
     return undefined;
@@ -69,7 +71,8 @@ function parseHighlightRanges(meta: string): Set<number> | undefined {
     }
     const start = Number(range[1]);
     const end = Number(range[2] ?? range[1]);
-    if (start < 1 || end < start) {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+      || start < 1 || end < start || start > lineCount || end > lineCount) {
       return undefined;
     }
     for (let line = start; line <= end; line += 1) {
