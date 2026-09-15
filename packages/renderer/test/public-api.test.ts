@@ -10,7 +10,7 @@ describe("package contract", () => {
   it("is a public ESM package with node and browser entries", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg).toMatchObject({
-      name: "@thethoughtagen/fieldnotes-renderer",
+      name: "@cruciblesoftware/fieldnotes-renderer",
       version: "0.1.0",
       type: "module",
       engines: { node: ">=24" },

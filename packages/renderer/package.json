@@ -1,5 +1,5 @@
 {
-  "name": "@thethoughtagen/fieldnotes-renderer",
+  "name": "@cruciblesoftware/fieldnotes-renderer",
   "version": "0.1.0",
   "description": "Shared Markdown rendering contract for FIELDNOTES documents.",
   "license": "MIT",
