@@ -5,6 +5,9 @@ export type MermaidRenderer = {
     startOnLoad: boolean;
     securityLevel: "strict";
     theme?: "default" | "dark" | "neutral";
+    look: "classic";
+    htmlLabels: false;
+    fontFamily: string;
   }): void;
   render(id: string, source: string, container?: HTMLElement): Promise<{ svg: string }>;
 };
@@ -30,6 +33,9 @@ export async function hydrateMermaid(
   renderer.initialize({
     startOnLoad: false,
     securityLevel: "strict",
+    look: "classic",
+    htmlLabels: false,
+    fontFamily: "Arial, sans-serif",
     ...(options.theme === undefined ? {} : { theme: options.theme })
   });
   const placeholders = [...root.querySelectorAll<HTMLPreElement>("pre.fieldnotes-mermaid[data-fieldnotes-mermaid]")];
@@ -62,17 +68,39 @@ export async function hydrateMermaid(
 export function normalizeRenderedDom(root: ParentNode): string {
   const clone = root.cloneNode(true);
   if (clone instanceof Document) {
+    stripVolatileMermaidLayout(clone);
     normalizeElementTree(clone.documentElement);
     return clone.documentElement.outerHTML;
   }
   if (clone instanceof Element) {
+    stripVolatileMermaidLayout(clone);
     normalizeElementTree(clone);
     return clone.outerHTML;
   }
   const wrapper = document.createElement("div");
   wrapper.append(clone);
+  stripVolatileMermaidLayout(wrapper);
   normalizeElementTree(wrapper);
   return wrapper.innerHTML;
+}
+
+const volatileMermaidLayoutAttributes = new Set([
+  "cx", "cy", "d", "data-points", "height", "points", "rx", "ry", "style",
+  "transform", "viewbox", "width", "x", "x1", "x2", "y", "y1", "y2"
+]);
+
+function stripVolatileMermaidLayout(root: ParentNode): void {
+  const diagrams = [...root.querySelectorAll<SVGSVGElement>("svg.flowchart")];
+  if (root instanceof SVGSVGElement && root.matches("svg.flowchart")) diagrams.unshift(root);
+  for (const diagram of diagrams) {
+    for (const element of [diagram, ...diagram.querySelectorAll("*")]) {
+      for (const attribute of [...element.attributes]) {
+        if (volatileMermaidLayoutAttributes.has(attribute.name.toLowerCase())) {
+          element.removeAttribute(attribute.name);
+        }
+      }
+    }
+  }
 }
 
 function errorResult(

@@ -12,6 +12,10 @@ describe("literal hydrated DOM conformance corpus", () => {
       try {
         await hydrateMermaid(container);
         expect(normalizeRenderedDom(container)).toBe(fixture.expected.hydratedDom);
+        if (fixture.name === "mermaid") {
+          expect(container.textContent).toContain("Observe");
+          expect(container.textContent).toContain("Act");
+        }
       } finally {
         container.remove();
       }

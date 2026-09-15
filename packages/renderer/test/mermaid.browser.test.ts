@@ -4,6 +4,15 @@ import { hydrateMermaid, normalizeRenderedDom } from "../src/browser.js";
 const digest = "c18237e0a535bdb73d9c241d24e7905bd72b7e64ca3ece4b5c241eb4fd8c7546";
 
 describe("trusted Mermaid hydration", () => {
+  it("normalizes away browser-dependent Mermaid layout geometry", () => {
+    const container = document.createElement("div");
+    container.innerHTML = `<svg class="flowchart" height="61" style="max-width:360px" viewBox="4 4 360 61" width="100%"><path d="M1,2L3,4" data-points="volatile" style="stroke-dasharray: 0 0 32 4"></path><text transform="translate(10,20)" x="10" y="20"><tspan x="11" y="21">Observe</tspan></text></svg>`;
+
+    expect(normalizeRenderedDom(container)).toBe(
+      '<div><svg class="flowchart"><path></path><text><tspan>Observe</tspan></text></svg></div>'
+    );
+  });
+
   it("renders verified placeholders deterministically in independent containers", async () => {
     const first = document.createElement("div");
     const second = document.createElement("div");

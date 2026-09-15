@@ -46,7 +46,7 @@ describe("offline dist-only browser package", () => {
   afterAll(async () => {
     await browser?.close();
     await closeServer?.();
-  });
+  }, 30_000);
 
   it("imports one self-contained bundle and hydrates without network access", async () => {
     const fixture = conformanceCases.find(candidate => candidate.name === "mermaid");
@@ -82,13 +82,16 @@ describe("offline dist-only browser package", () => {
         normalized: api.normalizeRenderedDom(root),
         svgCount: root.querySelectorAll("svg").length,
         errorCount: root.querySelectorAll("pre.fieldnotes-mermaid-error").length,
-        unsafeCount: root.querySelectorAll("script, foreignObject, [onclick]").length
+        unsafeCount: root.querySelectorAll("script, foreignObject, [onclick]").length,
+        visibleText: root.textContent
       };
     }, { moduleUrl: browserUrl, html: fixture.expected.renderer.html });
 
     expect(result.hydration.map(({ status }: { status: string }) => status)).toEqual(["rendered", "error"]);
     expect(result.normalized).toBe(fixture.expected.hydratedDom);
     expect(result).toMatchObject({ svgCount: 1, errorCount: 1, unsafeCount: 0 });
+    expect(result.visibleText).toContain("Observe");
+    expect(result.visibleText).toContain("Act");
     expect(requested).toEqual([harnessUrl, browserUrl]);
     expect(blocked).toEqual([]);
     expect(pageErrors).toEqual([]);
