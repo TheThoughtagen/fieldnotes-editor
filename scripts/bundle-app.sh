@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$stage/Contents/MacOS" "$stage/Contents/Resources/editor-web"
+mkdir -p "$stage/Contents/MacOS" "$stage/Contents/Resources/bin" "$stage/Contents/Resources/editor-web"
 
 cd "$repository_root"
 npm run build --workspace @cruciblesoftware/fieldnotes-renderer
@@ -74,11 +74,16 @@ fi
 
 cp "$repository_root/Sources/FieldnotesApp/Info.plist" "$stage/Contents/Info.plist"
 cp -R "$repository_root/build/editor-web/." "$stage/Contents/Resources/editor-web/"
-chmod 755 "$stage/Contents/MacOS/FIELDNOTESApp" "$stage/Contents/MacOS/fieldnotes"
+cp "$repository_root/scripts/fieldnotes-launcher.sh" "$stage/Contents/Resources/bin/fieldnotes"
+chmod 755 \
+  "$stage/Contents/MacOS/FIELDNOTESApp" \
+  "$stage/Contents/MacOS/fieldnotes" \
+  "$stage/Contents/Resources/bin/fieldnotes"
 
 plutil -lint "$stage/Contents/Info.plist" >/dev/null
 test -x "$stage/Contents/MacOS/FIELDNOTESApp"
 test -x "$stage/Contents/MacOS/fieldnotes"
+test -x "$stage/Contents/Resources/bin/fieldnotes"
 test -f "$stage/Contents/Resources/editor-web/index.html"
 
 if test "$configuration" = release; then

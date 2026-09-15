@@ -2,6 +2,19 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  optimizeDeps: {
+    include: [
+      "@codemirror/autocomplete",
+      "@codemirror/commands",
+      "@codemirror/lang-markdown",
+      "@codemirror/language",
+      "@codemirror/lint",
+      "@codemirror/search",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@replit/codemirror-vim",
+    ],
+  },
   test: {
     include: ["test/**/*.test.ts"],
     browser: {

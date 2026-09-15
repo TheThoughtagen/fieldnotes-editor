@@ -7,6 +7,7 @@ export default defineConfig({
     outDir: "../../build/editor-web",
     emptyOutDir: true,
     target: "safari17",
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       external: [],
     },

@@ -3,6 +3,9 @@ import { createReadStream, existsSync, readFileSync, readdirSync, statSync } fro
 import { createServer } from "node:http";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
+import { init, parse } from "es-module-lexer";
+
+await init;
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const bundleRoot = join(repositoryRoot, "build", "editor-web");
@@ -76,13 +79,14 @@ function emittedFiles(directory) {
 
 function emittedReferences(file) {
   const text = readFileSync(file, "utf8");
+  if (extname(file) === ".js") {
+    return parse(text)[0].flatMap((entry) => entry.n ? [entry.n] : []);
+  }
   const patterns = extname(file) === ".html"
     ? [/(?:src|href)="([^"]+)"/g]
     : extname(file) === ".css"
       ? [/url\(["']?([^"')]+)["']?\)/g, /@import\s+["']([^"']+)["']/g]
-      : extname(file) === ".js"
-        ? [/(?:import\s*(?:\(|)["']|from\s*["'])([^"']+)["']/g]
-        : [];
+      : [];
   return patterns.flatMap((pattern) => Array.from(text.matchAll(pattern), (match) => match[1]));
 }
 
