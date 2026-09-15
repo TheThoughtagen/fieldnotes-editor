@@ -1,6 +1,14 @@
 {
   "name": "@thethoughtagen/fieldnotes-renderer",
   "version": "0.1.0",
+  "description": "Shared Markdown rendering contract for FIELDNOTES documents.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheThoughtagen/fieldnotes-editor.git",
+    "directory": "packages/renderer"
+  },
+  "homepage": "https://github.com/TheThoughtagen/fieldnotes-editor#readme",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -11,10 +19,11 @@
     "build:test": "npm run clean && npm run build:types && npm run build:node && npm run build:browser && npm run build:css",
     "build:conformance": "node scripts/build-conformance.mjs",
     "build:types": "tsc --emitDeclarationOnly",
-    "build:node": "esbuild src/index.ts src/conformance.ts --bundle --packages=external --platform=node --format=esm --target=node24 --sourcemap --outdir=dist",
-    "build:browser": "esbuild src/browser.ts --bundle --platform=browser --format=esm --target=safari17 --sourcemap --outfile=dist/browser.js",
+    "build:node": "esbuild src/index.ts src/conformance.ts --bundle --packages=external --platform=node --format=esm --target=node24 --outdir=dist",
+    "build:browser": "esbuild src/browser.ts --bundle --platform=browser --format=esm --target=safari17 --outfile=dist/browser.js",
     "build:css": "cp src/styles.css dist/styles.css",
     "pretest": "npm run build:test",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -34,10 +43,14 @@
     "./styles.css": "./dist/styles.css"
   },
   "files": [
-    "dist"
+    "dist/*.js",
+    "dist/*.d.ts",
+    "dist/styles.css",
+    "fixtures"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "ajv": "8.20.0",

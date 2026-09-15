@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -19,8 +20,8 @@ describe("conformance corpus generation", () => {
     const directory = await makeTemporaryDirectory();
     const output = join(directory, "conformance.generated.ts");
     await run(process.execPath, [
-      new URL("../scripts/build-conformance.mjs", import.meta.url).pathname,
-      new URL("../fixtures/", import.meta.url).pathname,
+      fileURLToPath(new URL("../scripts/build-conformance.mjs", import.meta.url)),
+      fileURLToPath(new URL("../fixtures/", import.meta.url)),
       output
     ]);
 
@@ -47,7 +48,7 @@ describe("conformance corpus generation", () => {
       }));
 
       const result = await run(process.execPath, [
-        new URL("../scripts/build-conformance.mjs", import.meta.url).pathname,
+        fileURLToPath(new URL("../scripts/build-conformance.mjs", import.meta.url)),
         join(directory, "fixtures"),
         join(directory, "output.ts")
       ]).then(

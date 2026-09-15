@@ -9,9 +9,11 @@ describe("package contract", () => {
       version: "0.1.0",
       type: "module",
       engines: { node: ">=24" },
-      publishConfig: { access: "public" }
+      publishConfig: { access: "public", provenance: true }
     });
     expect(Object.keys(pkg.exports)).toEqual([".", "./browser", "./conformance", "./styles.css"]);
+    expect(pkg.files).toEqual(["dist/*.js", "dist/*.d.ts", "dist/styles.css", "fixtures"]);
+    expect(pkg.scripts.prepack).toBe("npm run build");
   });
 
   it("generates declarations separately from the JavaScript bundles", async () => {
@@ -20,9 +22,12 @@ describe("package contract", () => {
     expect(pkg.scripts.build).toContain("build:types");
     expect(pkg.scripts["build:types"]).toBe("tsc --emitDeclarationOnly");
     expect(pkg.scripts.build).not.toContain("tsup");
-    expect(pkg.scripts["build:node"]).toContain("--sourcemap");
+    expect(pkg.scripts["build:node"]).not.toContain("--sourcemap");
     expect(pkg.scripts["build:node"]).toContain("--packages=external");
-    expect(pkg.scripts["build:browser"]).toContain("--sourcemap");
+    expect(pkg.scripts["build:browser"]).not.toContain("--sourcemap");
+
+    const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
+    expect(tsconfig.compilerOptions).toMatchObject({ declarationMap: false, sourceMap: false });
   });
 
   it("imports every built JavaScript export and renders through dist", async () => {
