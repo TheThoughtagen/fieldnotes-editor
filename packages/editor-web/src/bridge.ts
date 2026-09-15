@@ -184,8 +184,9 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       return;
     }
     recoveryAttempted = true;
+    const hadUnresolvedIntent = Boolean(inFlight || pending);
     const latest = latestEdit();
-    pending = latest.text === authoritativeText ? undefined : latest;
+    pending = hadUnresolvedIntent || latest.text !== authoritativeText ? latest : undefined;
     inFlight = undefined;
     setBridgeState("recovering");
     const requestedRevision = revision;
@@ -210,8 +211,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       if (!localDiverges) {
         applyExactSnapshot(snapshot);
       } else if (localText === snapshot.text) {
-        pending = undefined;
-        applySelection(snapshot.selection);
+        if (!pending) applySelection(snapshot.selection);
       }
       if (!pending) recoveryAttempted = false;
       setBridgeState("ready");

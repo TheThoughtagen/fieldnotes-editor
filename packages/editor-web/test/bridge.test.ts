@@ -243,6 +243,54 @@ test("a failed post-recovery resend disconnects instead of looping", async () =>
   expect(postMessage.mock.calls.filter(([message]) => (message as { kind: string }).kind === "requestSnapshot")).toHaveLength(1);
 });
 
+test("ABA recovery retains a revert that equals the stale authoritative text", async () => {
+  const failedEdit = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string; revision: number };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "transaction" && postMessage.mock.calls.length === 2) return failedEdit.promise;
+    if (envelope.kind === "requestSnapshot") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 1, text: "B", selection: { anchor: 1, head: 1 } });
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: envelope.revision });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+  view.dispatch({ changes: { from: 0, to: 1, insert: "A" }, selection: { anchor: 0 } });
+  failedEdit.reject(new Error("ACK was lost after native commit"));
+
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(4));
+  expect(view.state.doc.toString()).toBe("A");
+  expect(view.state.selection.main).toMatchObject({ anchor: 0, head: 0 });
+  expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "requestSnapshot", baseRevision: 0, revision: 0 });
+  expect(postMessage.mock.calls[3]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 1, revision: 2, payload: { text: "A", selection: { anchor: 0, head: 0 } } });
+});
+
+test("recovery snapshot equal to the latest ABA text sends selection only", async () => {
+  const failedEdit = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string; revision: number };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "transaction" && postMessage.mock.calls.length === 2) return failedEdit.promise;
+    if (envelope.kind === "requestSnapshot") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 1, text: "A", selection: { anchor: 1, head: 1 } });
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: envelope.revision });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+  view.dispatch({ changes: { from: 0, to: 1, insert: "A" }, selection: { anchor: 0 } });
+  failedEdit.reject(new Error("ACK was lost"));
+
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(4));
+  expect(view.state.doc.toString()).toBe("A");
+  expect(view.state.selection.main).toMatchObject({ anchor: 0, head: 0 });
+  expect(postMessage.mock.calls[3]?.[0]).toEqual({ kind: "selection", documentID: "doc", baseRevision: 1, revision: 1, payload: { selection: { anchor: 0, head: 0 } } });
+  expect(postMessage.mock.calls.map(([message]) => message as { kind: string }).filter((message) => message.kind === "transaction")).toHaveLength(1);
+});
+
 test.each([
   ["rejected", () => Promise.reject(new Error("ready failed"))],
   ["invalid", () => Promise.resolve({ kind: "ack", documentID: "doc", revision: 0 })],
