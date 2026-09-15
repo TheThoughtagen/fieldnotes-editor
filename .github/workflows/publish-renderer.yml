@@ -28,6 +28,7 @@ jobs:
           if (!/^renderer-v\d+\.\d+\.\d+$/.test(tag) || tag !== `renderer-v${version}`) {
           console.error(`Tag ${tag} must exactly match renderer-v${version}`); process.exit(1); }'
       - run: npm ci
+      - run: npx playwright install chromium
       - run: npm run typecheck && npm test
       - run: npm audit --omit=dev --audit-level=high
       - run: npm pack --workspace packages/renderer --dry-run
