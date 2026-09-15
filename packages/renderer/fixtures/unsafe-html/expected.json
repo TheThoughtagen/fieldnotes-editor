@@ -1,0 +1,29 @@
+{
+  "renderer": {
+    "html": "<h2 id=\"safe-heading\">Safe heading</h2>\n\n<img alt=\"Unsafe\" src=\"images/unsafe.png\">\n<p><a>Unsafe link</a></p>\n<p></p>\n\n<iframe allowfullscreen height=\"315\" sandbox=\"allow-scripts allow-same-origin allow-presentation\" src=\"https://www.youtube-nocookie.com/embed/abc-123?start=10\" title=\"Allowed video\" width=\"560\"></iframe>",
+    "normalizedHtml": "<h2 id=\"safe-heading\">Safe heading</h2>\n\n<img alt=\"Unsafe\" src=\"images/unsafe.png\">\n<p><a>Unsafe link</a></p>\n<p></p>\n\n<iframe allowfullscreen height=\"315\" sandbox=\"allow-scripts allow-same-origin allow-presentation\" src=\"https://www.youtube-nocookie.com/embed/abc-123?start=10\" title=\"Allowed video\" width=\"560\"></iframe>",
+    "toc": [
+      {
+        "depth": 2,
+        "id": "safe-heading",
+        "text": "Safe heading",
+        "children": []
+      }
+    ],
+    "frontmatter": {
+      "title": "Unsafe input"
+    },
+    "diagnostics": [
+      {
+        "code": "iframe.invalid-source",
+        "message": "Iframe source is not allowed: https://evil.example/embed/123",
+        "severity": "warning"
+      }
+    ],
+    "assets": [],
+    "plainText": "Safe heading Unsafe Unsafe link alert(2)",
+    "wordCount": 6,
+    "readingMinutes": 1
+  },
+  "hydratedDom": "<main id=\"fixture\"><h2 id=\"safe-heading\">Safe heading</h2>\n\n<img alt=\"Unsafe\" src=\"images/unsafe.png\">\n<p><a>Unsafe link</a></p>\n<p></p>\n\n<iframe allowfullscreen=\"\" height=\"315\" sandbox=\"allow-scripts allow-same-origin allow-presentation\" src=\"https://www.youtube-nocookie.com/embed/abc-123?start=10\" title=\"Allowed video\" width=\"560\"></iframe></main>"
+}

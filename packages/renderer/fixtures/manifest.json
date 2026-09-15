@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "name": "kitchen-sink",
+    "options": {
+      "sourcePath": "/fixtures/kitchen-sink/index.md",
+      "allowRemoteImages": false
+    },
+    "images": ["images/chart.svg"]
+  },
+  { "name": "unsafe-html" },
+  { "name": "malformed" },
+  { "name": "mermaid" }
+]
