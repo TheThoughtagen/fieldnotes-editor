@@ -12,8 +12,12 @@ function editor(text = "one") {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 test("handler is absent and the exported global is narrow and frozen", () => {
@@ -92,16 +96,16 @@ test("native bridge keeps the editor read-only until the initial snapshot arrive
   const bridge = createNativeBridge(view);
 
   expect(view.contentDOM.contentEditable).toBe("false");
-  await userEvent.click(view.contentDOM);
+  view.contentDOM.focus();
   await userEvent.keyboard("lost");
   expect(view.state.doc.toString()).toBe("placeholder");
 
   readyReply.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "native source", selection: { anchor: 13, head: 13 } });
   await bridge.ready;
   expect(view.contentDOM.contentEditable).toBe("true");
-  await userEvent.click(view.contentDOM);
-  await userEvent.keyboard("!");
-  expect(view.state.doc.toString()).toContain("!");
+  expect(view.state.readOnly).toBe(false);
+  await userEvent.type(view.contentDOM, "x");
+  expect(view.state.doc.toString()).toContain("x");
 });
 
 test("delayed ACK cannot roll back a newer authoritative snapshot", async () => {
@@ -150,6 +154,135 @@ test("equal revision snapshots reject text conflicts but apply authoritative sel
   expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 2, text: "same", selection: { anchor: 4, head: 1 } })).toBe(true);
   expect(view.state.selection.main).toMatchObject({ anchor: 4, head: 1 });
   expect(postMessage).not.toHaveBeenCalled();
+});
+
+test("identity document changes cannot deadlock the next real edit", async () => {
+  const postMessage = vi.fn(async (message: unknown) => {
+    const envelope = message as { kind: string; revision: number };
+    if (envelope.kind === "ready") return { kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } };
+    if (envelope.kind === "selection") return { kind: "ack", documentID: "doc", revision: 0 };
+    return { kind: "ack", documentID: "doc", revision: envelope.revision };
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+
+  view.dispatch({ changes: { from: 0, to: 1, insert: "A" }, selection: { anchor: 0 } });
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 0, head: 0 } })).toBe(true);
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+
+  await vi.waitFor(() => expect(postMessage.mock.calls.some(([message]) => (
+    (message as { kind?: string; payload?: { text?: string } }).kind === "transaction"
+      && (message as { payload?: { text?: string } }).payload?.text === "B"
+  ))).toBe(true));
+  const transactions = postMessage.mock.calls.map(([message]) => message as { kind: string; baseRevision: number; revision: number; payload?: { text?: string } }).filter((message) => message.kind === "transaction");
+  expect(transactions).toEqual([{ kind: "transaction", documentID: "doc", baseRevision: 0, revision: 1, payload: expect.objectContaining({ text: "B" }) }]);
+});
+
+test("rejected transaction recovers a snapshot base and sends the latest visible edit", async () => {
+  const failedEdit = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string; revision: number };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "transaction" && postMessage.mock.calls.length === 2) return failedEdit.promise;
+    if (envelope.kind === "requestSnapshot") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: envelope.revision });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+  view.dispatch({ changes: { from: 0, to: 1, insert: "C" } });
+  failedEdit.reject(new Error("delivery failed"));
+
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(4));
+  expect(view.state.doc.toString()).toBe("C");
+  expect(view.dom.dataset.bridgeState).toBe("ready");
+  expect(postMessage.mock.calls[2]?.[0]).toEqual({ kind: "requestSnapshot", documentID: "doc", baseRevision: 0, revision: 0, payload: {} });
+  expect(postMessage.mock.calls[3]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 0, revision: 1, payload: { text: "C" } });
+});
+
+test("invalid transaction reply uses one snapshot recovery before resending", async () => {
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string; revision: number };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 4, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "transaction" && postMessage.mock.calls.length === 2) return Promise.resolve({ kind: "ack", documentID: "doc", revision: 999, extra: true });
+    if (envelope.kind === "requestSnapshot") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 4, text: "A", selection: { anchor: 1, head: 1 } });
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: envelope.revision });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(4));
+  expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "requestSnapshot", baseRevision: 4, revision: 4 });
+  expect(postMessage.mock.calls[3]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 4, revision: 5, payload: { text: "B" } });
+  expect(view.dom.dataset.bridgeState).toBe("ready");
+});
+
+test("a failed post-recovery resend disconnects instead of looping", async () => {
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "requestSnapshot") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    return Promise.reject(new Error("delivery failed"));
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+
+  await vi.waitFor(() => expect(view.dom.dataset.bridgeState).toBe("disconnected"));
+  expect(view.state.doc.toString()).toBe("B");
+  expect(postMessage).toHaveBeenCalledTimes(4);
+  expect(postMessage.mock.calls.filter(([message]) => (message as { kind: string }).kind === "requestSnapshot")).toHaveLength(1);
+});
+
+test.each([
+  ["rejected", () => Promise.reject(new Error("ready failed"))],
+  ["invalid", () => Promise.resolve({ kind: "ack", documentID: "doc", revision: 0 })],
+] as const)("%s ready reply enters an explicit safe disconnected state", async (_name, readyReply) => {
+  const postMessage = vi.fn((_message: unknown) => readyReply());
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor("placeholder");
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+
+  expect(view.state.doc.toString()).toBe("placeholder");
+  expect(view.dom.dataset.bridgeState).toBe("disconnected");
+  expect(view.contentDOM.contentEditable).toBe("false");
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "unsent" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(postMessage).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ["rejected", () => Promise.reject(new Error("snapshot failed"))],
+  ["invalid", () => Promise.resolve({ kind: "snapshot", documentID: "other", revision: 1, text: "wrong", selection: { anchor: 0, head: 0 } })],
+] as const)("%s recovery reply disconnects without discarding visible text or retrying", async (_name, recoveryReply) => {
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (envelope.kind === "transaction") return Promise.reject(new Error("edit failed"));
+    return recoveryReply();
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+
+  await vi.waitFor(() => expect(view.dom.dataset.bridgeState).toBe("disconnected"));
+  expect(view.state.doc.toString()).toBe("B");
+  expect(view.contentDOM.contentEditable).toBe("false");
+  expect(postMessage).toHaveBeenCalledTimes(3);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(postMessage).toHaveBeenCalledTimes(3);
 });
 
 test("new snapshots replace once without echo; stale is rejected and equal is idempotent", async () => {

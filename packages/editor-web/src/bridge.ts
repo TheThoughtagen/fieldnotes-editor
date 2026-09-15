@@ -46,6 +46,8 @@ interface InFlightEdit {
   edit: PendingEdit;
 }
 
+type BridgeState = "standalone" | "connecting" | "ready" | "recovering" | "disconnected";
+
 export interface NativeBridge {
   readonly available: boolean;
   readonly ready: Promise<void>;
@@ -73,7 +75,22 @@ export function createNativeBridge(view: EditorView): NativeBridge {
   let applyingNative = false;
   let inFlight: InFlightEdit | undefined;
   let pending: PendingEdit | undefined;
+  let recoveryAttempted = false;
+  let bridgeState: BridgeState = handler ? "connecting" : "standalone";
   const readyGate = new Compartment();
+
+  const setBridgeState = (state: BridgeState): void => {
+    bridgeState = state;
+    view.dom.dataset.bridgeState = state;
+    const editable = state === "ready" || state === "recovering" || state === "standalone";
+    view.contentDOM.setAttribute("aria-disabled", String(!editable));
+    view.dispatch({ effects: readyGate.reconfigure([
+      EditorState.readOnly.of(!editable),
+      EditorView.editable.of(editable),
+    ]) });
+  };
+
+  const safePost = (message: unknown): Promise<unknown> => Promise.resolve().then(() => handler?.postMessage(message));
 
   const applySelection = (selection: Selection): void => {
     if (selection.anchor > view.state.doc.length || selection.head > view.state.doc.length) return;
@@ -99,6 +116,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
   };
 
   const applySnapshot = (value: unknown): boolean => {
+    if (bridgeState === "disconnected" || bridgeState === "recovering") return false;
     const snapshot = validSnapshot(value);
     if (!snapshot) return false;
     if (documentID && snapshot.documentID !== documentID) return false;
@@ -106,6 +124,13 @@ export function createNativeBridge(view: EditorView): NativeBridge {
 
     if (hasSnapshot && snapshot.revision === revision) {
       if (snapshot.text !== authoritativeText) return false;
+      if (inFlight?.edit.text === authoritativeText) {
+        inFlight = undefined;
+        recoveryAttempted = false;
+        if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
+        sendPending();
+        return true;
+      }
       if (view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
       return true;
     }
@@ -115,6 +140,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       revision = snapshot.revision;
       authoritativeText = snapshot.text;
       inFlight = undefined;
+      recoveryAttempted = false;
       if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
       sendPending();
       return true;
@@ -126,41 +152,141 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     hasSnapshot = true;
     pending = undefined;
     inFlight = undefined;
+    recoveryAttempted = false;
     applyExactSnapshot(snapshot);
     return true;
   };
   activeApply = applySnapshot;
 
-  const handleReply = (value: unknown, expectedRevision?: number): void => {
-    const reply = validReply(value);
-    if (!reply) return;
-    if (reply.kind === "snapshot") {
-      applySnapshot(reply);
+  const disconnect = (): void => {
+    inFlight = undefined;
+    bridgeState = "disconnected";
+    view.dom.dataset.bridgeState = "disconnected";
+    view.contentDOM.setAttribute("aria-disabled", "true");
+    view.dispatch({ effects: readyGate.reconfigure([
+      EditorState.readOnly.of(true),
+      EditorView.editable.of(false),
+    ]) });
+  };
+
+  const latestEdit = (): PendingEdit => ({
+    text: view.state.doc.toString(),
+    selection: {
+      anchor: view.state.selection.main.anchor,
+      head: view.state.selection.main.head,
+    },
+    editKind: "done",
+  });
+
+  const beginRecovery = (): void => {
+    if (!handler || bridgeState === "disconnected" || bridgeState === "recovering" || !documentID || !hasSnapshot || recoveryAttempted) {
+      disconnect();
       return;
     }
-    if (reply.kind === "ack" && reply.documentID === documentID && reply.revision === expectedRevision && inFlight?.expectedRevision === expectedRevision) {
+    recoveryAttempted = true;
+    const latest = latestEdit();
+    pending = latest.text === authoritativeText ? undefined : latest;
+    inFlight = undefined;
+    setBridgeState("recovering");
+    const requestedRevision = revision;
+    void safePost({
+      kind: "requestSnapshot",
+      documentID,
+      baseRevision: requestedRevision,
+      revision: requestedRevision,
+      payload: {},
+    }).then((value) => {
+      if (bridgeState !== "recovering") return;
+      const snapshot = validSnapshot(value);
+      if (!snapshot || snapshot.documentID !== documentID || snapshot.revision < revision) {
+        disconnect();
+        return;
+      }
+      const localText = view.state.doc.toString();
+      const localDiverges = Boolean(pending) || localText !== authoritativeText;
+      revision = snapshot.revision;
+      authoritativeText = snapshot.text;
+      hasSnapshot = true;
+      if (!localDiverges) {
+        applyExactSnapshot(snapshot);
+      } else if (localText === snapshot.text) {
+        pending = undefined;
+        applySelection(snapshot.selection);
+      }
+      if (!pending) recoveryAttempted = false;
+      setBridgeState("ready");
+      sendPending();
+    }).catch(() => disconnect());
+  };
+
+  const handleTransactionReply = (value: unknown, flight: InFlightEdit): void => {
+    if (bridgeState === "disconnected" || inFlight !== flight) return;
+    const reply = validReply(value);
+    if (!reply || reply.kind === "rejected") {
+      beginRecovery();
+      return;
+    }
+    if (reply.kind === "snapshot") {
+      if (!applySnapshot(reply) || inFlight === flight) beginRecovery();
+      return;
+    }
+    if (reply.documentID === documentID && reply.revision === flight.expectedRevision) {
       if (reply.revision > revision) {
         revision = reply.revision;
-        authoritativeText = inFlight.edit.text;
+        authoritativeText = flight.edit.text;
       }
       inFlight = undefined;
+      recoveryAttempted = false;
       sendPending();
+      return;
     }
+    beginRecovery();
   };
 
   const sendPending = (): void => {
-    if (!handler || inFlight || !pending || !documentID || !hasSnapshot) return;
+    if (!handler || inFlight || !pending || !documentID || !hasSnapshot || bridgeState !== "ready") return;
     const edit = pending;
+    if (edit.text === authoritativeText) {
+      pending = undefined;
+      recoveryAttempted = false;
+      sendSelection(edit.selection);
+      return;
+    }
     pending = undefined;
     const expectedRevision = revision + 1;
-    inFlight = { expectedRevision, edit };
-    void handler.postMessage({
+    const flight = { expectedRevision, edit };
+    inFlight = flight;
+    void safePost({
       kind: "transaction",
       documentID,
       baseRevision: revision,
       revision: expectedRevision,
       payload: edit,
-    }).then((reply) => handleReply(reply, expectedRevision));
+    }).then((reply) => handleTransactionReply(reply, flight)).catch(() => {
+      if (inFlight === flight) beginRecovery();
+    });
+  };
+
+  const sendSelection = (selection: Selection): void => {
+    if (!handler || !documentID || bridgeState !== "ready" || inFlight) return;
+    const expectedRevision = revision;
+    void safePost({
+      kind: "selection",
+      documentID,
+      baseRevision: expectedRevision,
+      revision: expectedRevision,
+      payload: { selection },
+    }).then((value) => {
+      if (bridgeState === "disconnected" || revision !== expectedRevision) return;
+      const reply = validReply(value);
+      if (!reply || reply.kind === "rejected") {
+        beginRecovery();
+      } else if (reply.kind === "snapshot") {
+        if (!applySnapshot(reply)) beginRecovery();
+      } else if (reply.documentID !== documentID || reply.revision !== expectedRevision) {
+        beginRecovery();
+      }
+    }).catch(() => beginRecovery());
   };
 
   const onUpdate = (update: ViewUpdate): void => {
@@ -170,16 +296,16 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       head: update.state.selection.main.head,
     };
     if (update.docChanged) {
-      pending = { text: update.state.doc.toString(), selection, editKind: transactionKind(update) };
+      const text = update.state.doc.toString();
+      if (!inFlight && hasSnapshot && text === authoritativeText) {
+        pending = undefined;
+        sendSelection(selection);
+        return;
+      }
+      pending = { text, selection, editKind: transactionKind(update) };
       sendPending();
     } else if (update.selectionSet && !inFlight) {
-      void handler.postMessage({
-        kind: "selection",
-        documentID,
-        baseRevision: revision,
-        revision,
-        payload: { selection },
-      }).then((reply) => handleReply(reply, revision));
+      sendSelection(selection);
     }
   };
   view.dispatch({ effects: StateEffect.appendConfig.of([
@@ -189,16 +315,18 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     ]),
     EditorView.updateListener.of(onUpdate),
   ]) });
+  view.dom.dataset.bridgeState = bridgeState;
+  view.contentDOM.setAttribute("aria-disabled", String(Boolean(handler)));
 
   const ready = handler
-    ? handler.postMessage({ kind: "ready", documentID: "", baseRevision: 0, revision: 0, payload: {} })
+    ? safePost({ kind: "ready", documentID: "", baseRevision: 0, revision: 0, payload: {} })
       .then((reply) => {
-        if (!applySnapshot(reply)) return;
-        view.dispatch({ effects: readyGate.reconfigure([
-          EditorState.readOnly.of(false),
-          EditorView.editable.of(true),
-        ]) });
-      })
+        if (!applySnapshot(reply)) {
+          disconnect();
+          return;
+        }
+        setBridgeState("ready");
+      }).catch(() => disconnect())
     : Promise.resolve();
 
   return { available: Boolean(handler), ready };
