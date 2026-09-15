@@ -42,6 +42,15 @@
       <string>Markdown Document</string>
       <key>CFBundleTypeRole</key>
       <string>Editor</string>
+      <key>NSDocumentClass</key>
+      <string>FieldnotesDocument</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>md</string>
+        <string>markdown</string>
+        <string>mdown</string>
+        <string>mkd</string>
+      </array>
       <key>LSItemContentTypes</key>
       <array><string>net.daringfireball.markdown</string></array>
     </dict>

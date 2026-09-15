@@ -1,24 +1,46 @@
 import SwiftUI
-import FieldnotesCore
 
 @main
 struct FieldnotesApplication: App {
+    @NSApplicationDelegateAdaptor(DocumentApplicationDelegate.self) private var applicationDelegate
+
     var body: some Scene {
-        WindowGroup(AppIdentity.displayName) {
-            ContentView()
-                .frame(minWidth: 720, minHeight: 480)
+        Settings {
+            EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New") {
+                    do {
+                        _ = try NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
+                    } catch {
+                        NSApplication.shared.presentError(error)
+                    }
+                }
+                .keyboardShortcut("n")
+
+                Button("Open…") {
+                    NSDocumentController.shared.openDocument(nil)
+                }
+                .keyboardShortcut("o")
+            }
         }
     }
 }
 
-private struct ContentView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Text(AppIdentity.displayName)
-                .font(.largeTitle)
-            Text("Open a Markdown document to begin.")
-                .foregroundStyle(.secondary)
+@MainActor
+private final class DocumentApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        do {
+            _ = try NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
+            return true
+        } catch {
+            sender.presentError(error)
+            return false
         }
-        .padding()
     }
 }

@@ -27,6 +27,7 @@ let package = Package(
         .testTarget(
             name: "FieldnotesAppTests",
             dependencies: [
+                "FieldnotesApp",
                 "FieldnotesCore",
                 .product(name: "Testing", package: "swift-testing"),
             ]
