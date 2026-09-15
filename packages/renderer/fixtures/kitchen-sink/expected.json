@@ -1,0 +1,66 @@
+{
+  "renderer": {
+    "html": "<h1 id=\"excluded-title\">Excluded title</h1>\n<h2 id=\"observe\">Observe</h2>\n<p>Visible prose with <strong>strong text</strong>, <a href=\"https://example.com/docs\">linked words</a>, and <code>ignored code</code>.</p>\n<h3 id=\"compare\">Compare</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input checked disabled type=\"checkbox\"> Finished task</li>\n<li>Plain list item</li>\n</ul>\n<blockquote>\n<p>Quoted evidence.</p>\n</blockquote>\n\n\n\n\n\n\n\n\n\n\n\n\n\n<table><thead><tr><th>Signal</th><th>Meaning</th></tr></thead><tbody><tr><td>Fresh</td><td><del>Not stale</del></td></tr></tbody></table>\n<p>Footnote claim.<sup><a aria-describedby=\"footnote-label\" data-footnote-ref=\"\" href=\"#user-content-fn-source\" id=\"user-content-fnref-source\">1</a></sup></p>\n<pre><code class=\"hljs language-javascript\"><span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> one = <span class=\"hljs-number\">1</span>;</span>\n<span class=\"code-line\"><span class=\"hljs-keyword\">const</span> two = <span class=\"hljs-number\">2</span>;</span>\n<span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> three = <span class=\"hljs-number\">3</span>;</span></code></pre>\n<p>Inline math <span class=\"katex\"><span class=\"katex-mathml\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><semantics><mrow><mi>x</mi></mrow><annotation encoding=\"application/x-tex\">x</annotation></semantics></math></span><span aria-hidden=\"true\" class=\"katex-html\"><span class=\"base\"><span class=\"strut\" style=\"height:0.4306em;\"></span><span class=\"mord mathnormal\">x</span></span></span></span>.</p>\n<figure><img alt=\"Local chart\" src=\"images/chart.svg\" title=\"Gateway status\"><figcaption>Gateway status</figcaption></figure>\n<figure><img alt=\"Remote chart\" src=\"https://cdn.example.com/chart.png\" title=\"Remote status\"><figcaption>Remote status</figcaption></figure>\n<p><a id=\"stable-boundary\"></a></p>\n<h2 id=\"stable-boundary\">Observe</h2>\n<p>Stable section.</p>\n<section class=\"footnotes\" data-footnotes=\"\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2>\n<ol>\n<li id=\"user-content-fn-source\">\n<p>Supporting evidence. <a aria-label=\"Back to reference 1\" class=\"data-footnote-backref\" data-footnote-backref=\"\" href=\"#user-content-fnref-source\">↩</a></p>\n</li>\n</ol>\n</section>",
+    "normalizedHtml": "<h1 id=\"excluded-title\">Excluded title</h1>\n<h2 id=\"observe\">Observe</h2>\n<p>Visible prose with <strong>strong text</strong>, <a href=\"https://example.com/docs\">linked words</a>, and <code>ignored code</code>.</p>\n<h3 id=\"compare\">Compare</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input checked disabled type=\"checkbox\"> Finished task</li>\n<li>Plain list item</li>\n</ul>\n<blockquote>\n<p>Quoted evidence.</p>\n</blockquote>\n\n\n\n\n\n\n\n\n\n\n\n\n\n<table><thead><tr><th>Signal</th><th>Meaning</th></tr></thead><tbody><tr><td>Fresh</td><td><del>Not stale</del></td></tr></tbody></table>\n<p>Footnote claim.<sup><a aria-describedby=\"footnote-label\" data-footnote-ref=\"\" href=\"#user-content-fn-source\" id=\"user-content-fnref-source\">1</a></sup></p>\n<pre><code class=\"hljs language-javascript\"><span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> one = <span class=\"hljs-number\">1</span>;</span>\n<span class=\"code-line\"><span class=\"hljs-keyword\">const</span> two = <span class=\"hljs-number\">2</span>;</span>\n<span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> three = <span class=\"hljs-number\">3</span>;</span></code></pre>\n<p>Inline math <span class=\"katex\"><span class=\"katex-mathml\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><semantics><mrow><mi>x</mi></mrow><annotation encoding=\"application/x-tex\">x</annotation></semantics></math></span><span aria-hidden=\"true\" class=\"katex-html\"><span class=\"base\"><span class=\"strut\" style=\"height:0.4306em;\"></span><span class=\"mord mathnormal\">x</span></span></span></span>.</p>\n<figure><img alt=\"Local chart\" src=\"images/chart.svg\" title=\"Gateway status\"><figcaption>Gateway status</figcaption></figure>\n<figure><img alt=\"Remote chart\" src=\"https://cdn.example.com/chart.png\" title=\"Remote status\"><figcaption>Remote status</figcaption></figure>\n<p><a id=\"stable-boundary\"></a></p>\n<h2 id=\"stable-boundary\">Observe</h2>\n<p>Stable section.</p>\n<section class=\"footnotes\" data-footnotes=\"\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2>\n<ol>\n<li id=\"user-content-fn-source\">\n<p>Supporting evidence. <a aria-label=\"Back to reference 1\" class=\"data-footnote-backref\" data-footnote-backref=\"\" href=\"#user-content-fnref-source\">↩</a></p>\n</li>\n</ol>\n</section>",
+    "toc": [
+      {
+        "depth": 2,
+        "id": "observe",
+        "text": "Observe",
+        "children": [
+          {
+            "depth": 3,
+            "id": "compare",
+            "text": "Compare",
+            "children": []
+          }
+        ]
+      },
+      {
+        "depth": 2,
+        "id": "stable-boundary",
+        "text": "Observe",
+        "children": []
+      }
+    ],
+    "frontmatter": {
+      "title": "Renderer kitchen sink",
+      "description": "A literal cross-consumer rendering fixture.",
+      "date": "2026-09-14",
+      "category": "Development",
+      "tags": [
+        "Markdown",
+        "Reliability"
+      ],
+      "draft": false
+    },
+    "diagnostics": [
+      {
+        "code": "image.remote-disabled",
+        "message": "Remote image is disabled: https://cdn.example.com/chart.png",
+        "severity": "warning"
+      }
+    ],
+    "assets": [
+      {
+        "kind": "image",
+        "source": "images/chart.svg",
+        "remote": false,
+        "alt": "Local chart",
+        "title": "Gateway status",
+        "resolvedPath": "/fixtures/kitchen-sink/images/chart.svg"
+      },
+      {
+        "kind": "image",
+        "source": "https://cdn.example.com/chart.png",
+        "remote": true,
+        "alt": "Remote chart",
+        "title": "Remote status"
+      }
+    ],
+    "plainText": "Excluded title Observe Visible prose with strong text, linked words, and . Compare Finished task Plain list item Quoted evidence. Signal Meaning Fresh Not stale Footnote claim. Supporting evidence. Inline math . Local chart Remote chart Observe Stable section.",
+    "wordCount": 39,
+    "readingMinutes": 1
+  },
+  "hydratedDom": "<main id=\"fixture\"><h1 id=\"excluded-title\">Excluded title</h1>\n<h2 id=\"observe\">Observe</h2>\n<p>Visible prose with <strong>strong text</strong>, <a href=\"https://example.com/docs\">linked words</a>, and <code>ignored code</code>.</p>\n<h3 id=\"compare\">Compare</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input checked=\"\" disabled=\"\" type=\"checkbox\"> Finished task</li>\n<li>Plain list item</li>\n</ul>\n<blockquote>\n<p>Quoted evidence.</p>\n</blockquote>\n\n\n\n\n\n\n\n\n\n\n\n\n\n<table><thead><tr><th>Signal</th><th>Meaning</th></tr></thead><tbody><tr><td>Fresh</td><td><del>Not stale</del></td></tr></tbody></table>\n<p>Footnote claim.<sup><a aria-describedby=\"footnote-label\" data-footnote-ref=\"\" href=\"#user-content-fn-source\" id=\"user-content-fnref-source\">1</a></sup></p>\n<pre><code class=\"hljs language-javascript\"><span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> one = <span class=\"hljs-number\">1</span>;</span>\n<span class=\"code-line\"><span class=\"hljs-keyword\">const</span> two = <span class=\"hljs-number\">2</span>;</span>\n<span class=\"code-line\" data-highlighted-line=\"true\"><span class=\"hljs-keyword\">const</span> three = <span class=\"hljs-number\">3</span>;</span></code></pre>\n<p>Inline math <span class=\"katex\"><span class=\"katex-mathml\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><semantics><mrow><mi>x</mi></mrow><annotation encoding=\"application/x-tex\">x</annotation></semantics></math></span><span aria-hidden=\"true\" class=\"katex-html\"><span class=\"base\"><span class=\"strut\" style=\"height:0.4306em;\"></span><span class=\"mord mathnormal\">x</span></span></span></span>.</p>\n<figure><img alt=\"Local chart\" src=\"images/chart.svg\" title=\"Gateway status\"><figcaption>Gateway status</figcaption></figure>\n<figure><img alt=\"Remote chart\" src=\"https://cdn.example.com/chart.png\" title=\"Remote status\"><figcaption>Remote status</figcaption></figure>\n<p><a id=\"stable-boundary\"></a></p>\n<h2 id=\"stable-boundary\">Observe</h2>\n<p>Stable section.</p>\n<section class=\"footnotes\" data-footnotes=\"\"><h2 class=\"sr-only\" id=\"footnote-label\">Footnotes</h2>\n<ol>\n<li id=\"user-content-fn-source\">\n<p>Supporting evidence. <a aria-label=\"Back to reference 1\" class=\"data-footnote-backref\" data-footnote-backref=\"\" href=\"#user-content-fnref-source\">↩</a></p>\n</li>\n</ol>\n</section></main>"
+}

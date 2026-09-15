@@ -1,0 +1,31 @@
+{
+  "renderer": {
+    "html": "<h2 id=\"still-rendered\">Still rendered</h2>\n<p>An **unclosed emphasis marker and [unfinished link]( remain ordinary Markdown input.</p>",
+    "normalizedHtml": "<h2 id=\"still-rendered\">Still rendered</h2>\n<p>An **unclosed emphasis marker and [unfinished link]( remain ordinary Markdown input.</p>",
+    "toc": [
+      {
+        "depth": 2,
+        "id": "still-rendered",
+        "text": "Still rendered",
+        "children": []
+      }
+    ],
+    "frontmatter": {},
+    "diagnostics": [
+      {
+        "code": "frontmatter.invalid",
+        "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 1:\n\ntitle: [unterminated\ndate: 2026-09-14\n^\n",
+        "severity": "error",
+        "position": {
+          "line": 1,
+          "column": 1
+        }
+      }
+    ],
+    "assets": [],
+    "plainText": "Still rendered An **unclosed emphasis marker and [unfinished link]( remain ordinary Markdown input.",
+    "wordCount": 13,
+    "readingMinutes": 1
+  },
+  "hydratedDom": "<main id=\"fixture\"><h2 id=\"still-rendered\">Still rendered</h2>\n<p>An **unclosed emphasis marker and [unfinished link]( remain ordinary Markdown input.</p></main>"
+}

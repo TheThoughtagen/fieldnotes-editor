@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light dark;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+figure {
+  margin-inline: 0;
+}
+
+figure img,
+svg.flowchart {
+  max-width: 100%;
+  height: auto;
+}
+
+figcaption {
+  margin-block-start: 0.5rem;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  font-size: 0.875em;
+}
+
+.code-line {
+  display: block;
+  min-height: 1lh;
+}
+
+.code-line[data-highlighted-line="true"] {
+  background: color-mix(in srgb, Highlight 18%, transparent);
+  box-shadow: -0.25rem 0 0 color-mix(in srgb, Highlight 60%, transparent);
+}
+
+.contains-task-list {
+  list-style: none;
+  padding-inline-start: 1.5rem;
+}
+
+.task-list-item > input[type="checkbox"] {
+  margin-inline: -1.25rem 0.5rem;
+}
+
+.fieldnotes-mermaid-error {
+  overflow-x: auto;
+  border-inline-start: 0.25rem solid CanvasText;
+  padding: 0.75rem 1rem;
+  white-space: pre-wrap;
+}

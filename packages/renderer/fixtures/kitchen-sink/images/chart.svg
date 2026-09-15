@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="48" viewBox="0 0 120 48" role="img" aria-labelledby="title">
+  <title id="title">Gateway status</title>
+  <rect width="120" height="48" rx="8" fill="#151515"/>
+  <path d="M12 34 34 20l18 8 24-18 32 13" fill="none" stroke="#f0a43c" stroke-width="3"/>
+</svg>
