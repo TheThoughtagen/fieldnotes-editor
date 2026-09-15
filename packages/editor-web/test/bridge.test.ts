@@ -1,12 +1,19 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { expect, test, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import { createNativeBridge, type NativeReply } from "../src/bridge.js";
 
 function editor(text = "one") {
   const parent = document.createElement("div");
   document.body.replaceChildren(parent);
   return new EditorView({ state: EditorState.create({ doc: text }), parent });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
 }
 
 test("handler is absent and the exported global is narrow and frozen", () => {
@@ -46,6 +53,103 @@ test("edits are ACK-ordered and in-flight changes coalesce without optimistic re
   resolveFirst?.({ kind: "ack", documentID: "doc", revision: 1 });
   await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
   expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 1, revision: 2, payload: { text: "three" } });
+});
+
+test("native echo snapshot accepts the in-flight edit without overwriting newer queued text", async () => {
+  const firstAck = deferred<NativeReply>();
+  const secondAck = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    return postMessage.mock.calls.length === 2 ? firstAck.promise : secondAck.promise;
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+  view.dispatch({ changes: { from: 0, to: 1, insert: "C" } });
+  expect(view.state.doc.toString()).toBe("C");
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 1, text: "B", selection: { anchor: 1, head: 1 } })).toBe(true);
+
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
+  expect(view.state.doc.toString()).toBe("C");
+  expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 1, revision: 2, payload: { text: "C" } });
+  firstAck.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(view.state.doc.toString()).toBe("C");
+});
+
+test("native bridge keeps the editor read-only until the initial snapshot arrives", async () => {
+  const readyReply = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    if ((message as { kind: string }).kind === "ready") return readyReply.promise;
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor("placeholder");
+  const bridge = createNativeBridge(view);
+
+  expect(view.contentDOM.contentEditable).toBe("false");
+  await userEvent.click(view.contentDOM);
+  await userEvent.keyboard("lost");
+  expect(view.state.doc.toString()).toBe("placeholder");
+
+  readyReply.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "native source", selection: { anchor: 13, head: 13 } });
+  await bridge.ready;
+  expect(view.contentDOM.contentEditable).toBe("true");
+  await userEvent.click(view.contentDOM);
+  await userEvent.keyboard("!");
+  expect(view.state.doc.toString()).toContain("!");
+});
+
+test("delayed ACK cannot roll back a newer authoritative snapshot", async () => {
+  const delayedAck = deferred<NativeReply>();
+  const currentAck = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 1, head: 1 } });
+    if (postMessage.mock.calls.length === 2) return delayedAck.promise;
+    if (postMessage.mock.calls.length === 3) return currentAck.promise;
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: 4 });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 2, text: "native two", selection: { anchor: 10, head: 10 } })).toBe(true);
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "local three" } });
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
+  expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 2, revision: 3, payload: { text: "local three" } });
+
+  delayedAck.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(postMessage).toHaveBeenCalledTimes(3);
+  expect(view.state.doc.toString()).toBe("local three");
+
+  currentAck.resolve({ kind: "ack", documentID: "doc", revision: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "local four" } });
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(4));
+  expect(postMessage.mock.calls[3]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 3, revision: 4, payload: { text: "local four" } });
+});
+
+test("equal revision snapshots reject text conflicts but apply authoritative selection without echo", async () => {
+  const postMessage = vi.fn(async (_message: unknown) => ({ kind: "snapshot", documentID: "doc", revision: 2, text: "same", selection: { anchor: 0, head: 0 } }));
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  postMessage.mockClear();
+
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 2, text: "conflict", selection: { anchor: 0, head: 0 } })).toBe(false);
+  expect(view.state.doc.toString()).toBe("same");
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 2, text: "same", selection: { anchor: 4, head: 1 } })).toBe(true);
+  expect(view.state.selection.main).toMatchObject({ anchor: 4, head: 1 });
+  expect(postMessage).not.toHaveBeenCalled();
 });
 
 test("new snapshots replace once without echo; stale is rejected and equal is idempotent", async () => {
