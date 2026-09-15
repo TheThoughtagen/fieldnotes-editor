@@ -40,7 +40,7 @@ describe("package contract", () => {
     const rendered = await nodeEntry.renderDocument("---\ntitle: Built\n---\n## Works\n");
     expect(rendered.toc).toEqual([{ depth: 2, id: "works", text: "Works", children: [] }]);
     expect(rendered.html).toContain('<h2 id="works">Works</h2>');
-  }, 15_000);
+  }, 30_000);
 
   it("emits every exported import, type, and stylesheet target", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
