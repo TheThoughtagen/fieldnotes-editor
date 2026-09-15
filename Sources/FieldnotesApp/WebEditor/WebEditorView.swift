@@ -1,0 +1,139 @@
+import AppKit
+import SwiftUI
+import WebKit
+
+enum EditorNavigationDecision: Equatable {
+    case allow
+    case openExternally
+    case cancel
+}
+
+enum EditorNavigationPolicy {
+    static func decide(url: URL, editorRoot: URL, isUserLink: Bool) -> EditorNavigationDecision {
+        let index = editorRoot.appendingPathComponent("index.html").standardizedFileURL
+        if url.isFileURL, url.standardizedFileURL == index { return .allow }
+        if isUserLink, url.scheme?.lowercased() == "https" { return .openExternally }
+        return .cancel
+    }
+}
+
+struct WebEditorView: NSViewRepresentable {
+    let session: EditorSession
+    let revision: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(session: session)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let coordinator = context.coordinator
+        let webView = WKWebView(frame: .zero, configuration: coordinator.registration.configuration)
+        coordinator.attach(webView)
+        if let indexURL = Self.editorIndexURL() {
+            coordinator.editorRoot = indexURL.deletingLastPathComponent()
+            webView.loadFileURL(indexURL, allowingReadAccessTo: coordinator.editorRoot!)
+        }
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.pushSnapshotIfNeeded(revision: revision)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.teardown(webView)
+    }
+
+    private static func editorIndexURL() -> URL? {
+        Bundle.main.resourceURL?
+            .appendingPathComponent("editor-web", isDirectory: true)
+            .appendingPathComponent("index.html", isDirectory: false)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        let session: EditorSession
+        let registration: EditorWebRegistration
+        weak var webView: WKWebView?
+        var editorRoot: URL?
+        private var lastPushedRevision = -1
+
+        init(session: EditorSession) {
+            self.session = session
+            registration = EditorWebConfiguration.make(session: session)
+        }
+
+        func attach(_ webView: WKWebView) {
+            self.webView = webView
+            webView.navigationDelegate = self
+            webView.uiDelegate = self
+        }
+
+        func pushSnapshotIfNeeded(revision: Int) {
+            guard revision != lastPushedRevision, let webView else { return }
+            lastPushedRevision = revision
+            let generation = registration.currentGeneration
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView else { return }
+                _ = try? await webView.callAsyncJavaScript(
+                    "return window.fieldnotes.applyNativeSnapshot(snapshot)",
+                    arguments: ["snapshot": self.session.snapshot()],
+                    in: nil,
+                    contentWorld: .page
+                )
+                guard self.registration.currentGeneration == generation else { return }
+            }
+        }
+
+        func teardown(_ webView: WKWebView) {
+            registration.teardown()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            self.webView = nil
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.cancel)
+                return
+            }
+            guard let editorRoot else {
+                decisionHandler(.cancel)
+                return
+            }
+            switch EditorNavigationPolicy.decide(
+                url: url,
+                editorRoot: editorRoot,
+                isUserLink: navigationAction.navigationType == .linkActivated
+            ) {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally:
+                NSWorkspace.shared.open(url)
+                decisionHandler(.cancel)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil,
+               navigationAction.navigationType == .linkActivated,
+               navigationAction.request.url?.scheme?.lowercased() == "https",
+               let url = navigationAction.request.url {
+                NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+    }
+}

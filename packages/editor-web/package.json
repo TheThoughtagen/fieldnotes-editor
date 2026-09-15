@@ -9,7 +9,7 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && vitest run && node ../../scripts/test-offline-bundle.mjs"
+    "test": "npm run build && vitest run && node ../../scripts/test-editor-security.mjs && node ../../scripts/test-offline-bundle.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",

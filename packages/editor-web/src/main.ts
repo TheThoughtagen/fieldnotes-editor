@@ -15,6 +15,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { vim } from "@replit/codemirror-vim";
+import { createNativeBridge } from "./bridge.js";
 
 interface FieldnotesRoot extends HTMLElement {
   fieldnotesEditorView?: EditorView;
@@ -64,6 +65,7 @@ export function bootEditor(root: HTMLElement): EditorView {
   });
 
   const view = new EditorView({ state, parent: editorRoot });
+  createNativeBridge(view);
   editorRoot.fieldnotesEditorView = view;
   return view;
 }
