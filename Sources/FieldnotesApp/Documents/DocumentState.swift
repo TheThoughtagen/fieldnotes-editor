@@ -52,7 +52,7 @@ final class DocumentState {
     }
 
     func serializedData() throws -> Data {
-        editorText == baseText ? baseData : Data(editorText.utf8)
+        hasSameUTF8Bytes(editorText, baseText) ? baseData : Data(editorText.utf8)
     }
 
     func saveSnapshot() throws -> DocumentSaveSnapshot {
@@ -70,7 +70,7 @@ final class DocumentState {
         kind: DocumentEditKind
     ) {
         selection = clamped(newSelection, to: text)
-        guard text != editorText else { return }
+        guard !hasSameUTF8Bytes(text, editorText) else { return }
         editorText = text
         revision += 1
         onEdit?(kind)
@@ -98,5 +98,9 @@ final class DocumentState {
             anchor: min(max(selection.anchor, 0), upperBound),
             head: min(max(selection.head, 0), upperBound)
         )
+    }
+
+    private func hasSameUTF8Bytes(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.elementsEqual(rhs.utf8)
     }
 }

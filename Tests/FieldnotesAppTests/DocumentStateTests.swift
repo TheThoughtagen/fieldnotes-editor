@@ -68,6 +68,49 @@ struct DocumentStateTests {
         #expect(editCount == 0)
     }
 
+    @Test("composed source changing to decomposed Unicode is an exact edit")
+    func composedToDecomposedUnicodeIsAnEdit() throws {
+        let composedBytes = Data([0xC3, 0xA9])
+        let decomposedText = "e\u{301}"
+        let decomposedBytes = Data([0x65, 0xCC, 0x81])
+        let state = try DocumentState(data: composedBytes)
+        var edits: [DocumentEditKind] = []
+        state.onEdit = { edits.append($0) }
+
+        state.acceptEditorText(
+            decomposedText,
+            selection: .init(anchor: 2, head: 2),
+            kind: .done
+        )
+
+        #expect(Data(state.editorText.utf8) == decomposedBytes)
+        #expect(state.selection == .init(anchor: 2, head: 2))
+        #expect(state.revision == 1)
+        #expect(edits == [.done])
+        #expect(try state.serializedData() == decomposedBytes)
+    }
+
+    @Test("decomposed source changing to composed Unicode dirties the document")
+    func decomposedToComposedUnicodeIsAnEdit() throws {
+        let decomposedBytes = Data([0x65, 0xCC, 0x81])
+        let composedText = "\u{E9}"
+        let composedBytes = Data([0xC3, 0xA9])
+        let document = FieldnotesDocument()
+        try document.read(from: decomposedBytes, ofType: markdownType)
+
+        document.state.acceptEditorText(
+            composedText,
+            selection: .init(anchor: 1, head: 1),
+            kind: .done
+        )
+
+        #expect(Data(document.state.editorText.utf8) == composedBytes)
+        #expect(document.state.selection == .init(anchor: 1, head: 1))
+        #expect(document.state.revision == 2)
+        #expect(document.isDocumentEdited)
+        #expect(try document.state.serializedData() == composedBytes)
+    }
+
     @Test("disk replacement preserves state identity, clamps selection, and avoids edit callbacks")
     func diskReplacementMutatesPersistentState() throws {
         let state = try DocumentState(data: Data("long text".utf8))
