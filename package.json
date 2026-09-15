@@ -2,10 +2,13 @@
   "name": "fieldnotes-editor",
   "private": true,
   "packageManager": "npm@11.19.0",
+  "engines": {
+    "node": ">=24"
+  },
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "build": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run build --workspace @thethoughtagen/fieldnotes-editor-web",
+    "typecheck": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run typecheck --workspace @cruciblesoftware/fieldnotes-renderer && npm run typecheck --workspace @thethoughtagen/fieldnotes-editor-web",
+    "test": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @thethoughtagen/fieldnotes-editor-web"
   }
 }
