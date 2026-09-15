@@ -1,5 +1,10 @@
+import { execFile } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+
+const run = promisify(execFile);
 
 describe("package contract", () => {
   it("is a public ESM package with node and browser entries", async () => {
@@ -28,6 +33,18 @@ describe("package contract", () => {
 
     const tsconfig = JSON.parse(await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"));
     expect(tsconfig.compilerOptions).toMatchObject({ declarationMap: false, sourceMap: false });
+  });
+
+  it("keeps bundled Mermaid tooling out of the production dependency tree", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    expect(pkg.dependencies).not.toHaveProperty("mermaid");
+    expect(pkg.devDependencies.mermaid).toBe("12.0.0");
+
+    const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+    const { stdout } = await run("npm", [
+      "ls", "--omit=dev", "--all", "--json"
+    ], { cwd: repositoryRoot });
+    expect(stdout).not.toMatch(/"(?:mermaid|chevrotain|lodash-es)":/u);
   });
 
   it("imports every built JavaScript export and renders through dist", async () => {
