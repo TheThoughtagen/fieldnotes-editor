@@ -1,0 +1,12 @@
+html, body, #editor { height: 100%; margin: 0; }
+#editor { color: CanvasText; background: Canvas; }
+.fieldnotes-editor-host, .cm-editor { height: 100%; }
+.cm-scroller { overflow: auto; }
+.fn-syntax-muted { opacity: 0.3; }
+.fn-syntax-active { opacity: 1; }
+.fieldnotes-preview { box-sizing: border-box; max-width: 52rem; min-height: 100%; margin: 0 auto; padding: 2.5rem; line-height: 1.65; }
+.fieldnotes-preview[hidden], .fieldnotes-editor-host[hidden] { display: none; }
+.fieldnotes-preview pre, .fieldnotes-preview table { overflow-x: auto; }
+.fieldnotes-preview img { max-width: 100%; height: auto; }
+.fieldnotes-preview-error { color: MarkText; background: Mark; padding: 1rem; }
+.fieldnotes-render-stage { position: fixed; inset: 0 auto auto -10000px; width: 800px; visibility: hidden; pointer-events: none; }

@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  resolve: {
+    alias: { "node:path": fileURLToPath(new URL("./src/browser-path.ts", import.meta.url)) },
+  },
   root: ".",
   base: "./",
   build: {

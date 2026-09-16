@@ -23,6 +23,13 @@ final class DocumentWindowController: NSWindowController {
         )
         window.center()
         super.init(window: window)
+        session.onNativeAction = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .save: (self.document as? NSDocument)?.save(nil)
+            case .quit: self.window?.performClose(nil)
+            }
+        }
     }
 
     @available(*, unavailable)

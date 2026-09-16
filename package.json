@@ -7,8 +7,10 @@
   },
   "workspaces": ["packages/*"],
   "scripts": {
+    "generate:vim-docs": "node scripts/generate-vim-docs.mjs",
     "build": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run build --workspace @thethoughtagen/fieldnotes-editor-web",
     "typecheck": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run typecheck --workspace @cruciblesoftware/fieldnotes-renderer && npm run typecheck --workspace @thethoughtagen/fieldnotes-editor-web",
-    "test": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @thethoughtagen/fieldnotes-editor-web"
+    "test:vim-docs": "node --test scripts/test-vim-docs.mjs && node scripts/generate-vim-docs.mjs --check",
+    "test": "npm run build --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @cruciblesoftware/fieldnotes-renderer && npm run test --workspace @thethoughtagen/fieldnotes-editor-web && npm run test:vim-docs"
   }
 }

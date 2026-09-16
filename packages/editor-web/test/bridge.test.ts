@@ -25,7 +25,9 @@ test("handler is absent and the exported global is narrow and frozen", () => {
   const view = editor();
   const bridge = createNativeBridge(view);
   expect(bridge.available).toBe(false);
-  expect(Object.keys(window.fieldnotes)).toEqual(["applyNativeSnapshot"]);
+  expect(Object.keys(window.fieldnotes)).toEqual([
+    "applyNativeSnapshot", "setMode", "cycleMode", "setVimEnabled", "toggleVim", "destroy",
+  ]);
   expect(Object.isFrozen(window.fieldnotes)).toBe(true);
 });
 
@@ -57,6 +59,27 @@ test("edits are ACK-ordered and in-flight changes coalesce without optimistic re
   resolveFirst?.({ kind: "ack", documentID: "doc", revision: 1 });
   await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
   expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ kind: "transaction", baseRevision: 1, revision: 2, payload: { text: "three" } });
+});
+
+test("coalesced status waits for the pending edit acknowledgement", async () => {
+  const editAck = deferred<NativeReply>();
+  const postMessage = vi.fn((message: unknown) => {
+    const envelope = message as { kind: string };
+    if (envelope.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "one", selection: { anchor: 0, head: 0 } });
+    if (envelope.kind === "transaction") return editAck.promise;
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage } } } });
+  const view = editor();
+  const bridge = createNativeBridge(view);
+  await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 3, insert: "two" } });
+  bridge.postStatus({ presentationMode: "focus", vimMode: "normal", line: 1, column: 4, wordCount: 1 });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(postMessage.mock.calls.map(([message]) => (message as { kind: string }).kind)).toEqual(["ready", "transaction"]);
+  editAck.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  await vi.waitFor(() => expect(postMessage.mock.calls.map(([message]) => (message as { kind: string }).kind)).toEqual(["ready", "transaction", "status"]));
+  expect(postMessage.mock.calls[2]?.[0]).toMatchObject({ baseRevision: 1, revision: 1, payload: { column: 4 } });
 });
 
 test("native echo snapshot accepts the in-flight edit without overwriting newer queued text", async () => {
@@ -373,6 +396,11 @@ declare global {
   interface Window {
     fieldnotes: {
       applyNativeSnapshot(snapshot: unknown): boolean;
+      setMode(mode: unknown): boolean;
+      cycleMode(): void;
+      setVimEnabled(enabled: unknown): boolean;
+      toggleVim(): void;
+      destroy(): void;
     };
   }
 }

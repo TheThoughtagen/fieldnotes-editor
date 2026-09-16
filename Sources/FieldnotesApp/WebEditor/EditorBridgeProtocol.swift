@@ -13,6 +13,8 @@ enum EditorBridgeKind: String, Codable, Sendable {
     case transaction
     case selection
     case requestSnapshot
+    case status
+    case action
 }
 
 struct EditorBridgeSelection: Codable, Equatable, Sendable {
@@ -24,6 +26,12 @@ struct EditorBridgePayload: Codable, Equatable, Sendable {
     let text: String?
     let selection: EditorBridgeSelection?
     let editKind: String?
+    let action: String?
+    let presentationMode: String?
+    let vimMode: String?
+    let line: Int?
+    let column: Int?
+    let wordCount: Int?
 }
 
 struct EditorBridgeRequest: Codable, Equatable, Sendable {
@@ -61,17 +69,36 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
         case .ready, .requestSnapshot:
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: [])
             guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
-            payload = .init(text: nil, selection: nil, editKind: nil)
+            payload = .empty
         case .selection:
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["selection"])
             guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
-            payload = .init(text: nil, selection: try Self.decodeSelection(payloadContainer), editKind: nil)
+            payload = .init(text: nil, selection: try Self.decodeSelection(payloadContainer), editKind: nil, action: nil, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
         case .transaction:
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["text", "selection", "editKind"])
             let text = try payloadContainer.decode(String.self, forKey: .init("text"))
             let editKind = try payloadContainer.decode(String.self, forKey: .init("editKind"))
             guard ["done", "undone", "redone"].contains(editKind) else { throw BridgeProtocolError.invalidValue("editKind") }
-            payload = .init(text: text, selection: try Self.decodeSelection(payloadContainer), editKind: editKind)
+            payload = .init(text: text, selection: try Self.decodeSelection(payloadContainer), editKind: editKind, action: nil, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
+        case .action:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["action"])
+            guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
+            let action = try payloadContainer.decode(String.self, forKey: .init("action"))
+            guard ["save", "quit"].contains(action) else { throw BridgeProtocolError.invalidValue("action") }
+            payload = .init(text: nil, selection: nil, editKind: nil, action: action, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
+        case .status:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["presentationMode", "vimMode", "line", "column", "wordCount"])
+            guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
+            let mode = try payloadContainer.decode(String.self, forKey: .init("presentationMode"))
+            let vimMode = try payloadContainer.decode(String.self, forKey: .init("vimMode"))
+            let line = try payloadContainer.decode(Int.self, forKey: .init("line"))
+            let column = try payloadContainer.decode(Int.self, forKey: .init("column"))
+            let words = try payloadContainer.decode(Int.self, forKey: .init("wordCount"))
+            guard ["focus", "source", "preview"].contains(mode),
+                  ["normal", "insert", "replace", "visual", "off"].contains(vimMode),
+                  line > 0, column > 0, words >= 0
+            else { throw BridgeProtocolError.invalidValue("status") }
+            payload = .init(text: nil, selection: nil, editKind: nil, action: nil, presentationMode: mode, vimMode: vimMode, line: line, column: column, wordCount: words)
         }
         self.init(kind: kind, documentID: documentID, baseRevision: baseRevision, revision: revision, payload: payload)
     }
@@ -92,6 +119,14 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             try payloadContainer.encode(payload.text, forKey: .init("text"))
             try payloadContainer.encode(payload.selection, forKey: .init("selection"))
             try payloadContainer.encode(payload.editKind, forKey: .init("editKind"))
+        case .action:
+            try payloadContainer.encode(payload.action, forKey: .init("action"))
+        case .status:
+            try payloadContainer.encode(payload.presentationMode, forKey: .init("presentationMode"))
+            try payloadContainer.encode(payload.vimMode, forKey: .init("vimMode"))
+            try payloadContainer.encode(payload.line, forKey: .init("line"))
+            try payloadContainer.encode(payload.column, forKey: .init("column"))
+            try payloadContainer.encode(payload.wordCount, forKey: .init("wordCount"))
         }
     }
 
@@ -130,6 +165,10 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             throw BridgeProtocolError.missingField(missing)
         }
     }
+}
+
+private extension EditorBridgePayload {
+    static let empty = Self(text: nil, selection: nil, editKind: nil, action: nil, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
 }
 
 private struct DynamicCodingKey: CodingKey {

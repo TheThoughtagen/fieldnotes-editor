@@ -51,6 +51,17 @@ type BridgeState = "standalone" | "connecting" | "ready" | "recovering" | "disco
 export interface NativeBridge {
   readonly available: boolean;
   readonly ready: Promise<void>;
+  postStatus(status: EditorStatus): void;
+  requestAction(action: "save" | "quit"): Promise<boolean>;
+  destroy(): void;
+}
+
+export interface EditorStatus {
+  presentationMode: "focus" | "source" | "preview";
+  vimMode: string;
+  line: number;
+  column: number;
+  wordCount: number;
 }
 
 let activeApply: ((snapshot: unknown) => boolean) = () => false;
@@ -60,6 +71,11 @@ function installPublicAPI(): void {
     applyNativeSnapshot(snapshot: unknown): boolean {
       return activeApply(snapshot);
     },
+    setMode: (_mode: unknown) => false,
+    cycleMode: () => undefined,
+    setVimEnabled: (_enabled: unknown) => false,
+    toggleVim: () => undefined,
+    destroy: () => undefined,
   });
   Object.defineProperty(window, "fieldnotes", { configurable: true, enumerable: false, value: api, writable: false });
 }
@@ -77,6 +93,9 @@ export function createNativeBridge(view: EditorView): NativeBridge {
   let pending: PendingEdit | undefined;
   let recoveryAttempted = false;
   let bridgeState: BridgeState = handler ? "connecting" : "standalone";
+  let destroyed = false;
+  let statusTimer: number | undefined;
+  let statusPending: EditorStatus | undefined;
   const readyGate = new Compartment();
 
   const setBridgeState = (state: BridgeState): void => {
@@ -90,7 +109,14 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     ]) });
   };
 
-  const safePost = (message: unknown): Promise<unknown> => Promise.resolve().then(() => handler?.postMessage(message));
+  const safePost = (message: unknown): Promise<unknown> => Promise.resolve().then(() => destroyed ? undefined : handler?.postMessage(message));
+
+  function flushStatus(): void {
+    if (!handler || destroyed || !documentID || inFlight || pending || bridgeState !== "ready" || !statusPending) return;
+    const status = statusPending;
+    statusPending = undefined;
+    void safePost({ kind: "status", documentID, baseRevision: revision, revision, payload: status });
+  }
 
   const applySelection = (selection: Selection): void => {
     if (selection.anchor > view.state.doc.length || selection.head > view.state.doc.length) return;
@@ -129,6 +155,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
         recoveryAttempted = false;
         if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
         sendPending();
+        flushStatus();
         return true;
       }
       if (view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
@@ -143,6 +170,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       recoveryAttempted = false;
       if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
       sendPending();
+      flushStatus();
       return true;
     }
 
@@ -216,6 +244,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       if (!pending) recoveryAttempted = false;
       setBridgeState("ready");
       sendPending();
+      flushStatus();
     }).catch(() => disconnect());
   };
 
@@ -238,6 +267,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       inFlight = undefined;
       recoveryAttempted = false;
       sendPending();
+      flushStatus();
       return;
     }
     beginRecovery();
@@ -290,7 +320,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
   };
 
   const onUpdate = (update: ViewUpdate): void => {
-    if (applyingNative || !handler || !documentID) return;
+    if (destroyed || applyingNative || !handler || !documentID) return;
     const selection = {
       anchor: update.state.selection.main.anchor,
       head: update.state.selection.main.head,
@@ -329,7 +359,39 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       }).catch(() => disconnect())
     : Promise.resolve();
 
-  return { available: Boolean(handler), ready };
+  const postStatus = (status: EditorStatus): void => {
+    if (!handler || destroyed) return;
+    statusPending = status;
+    if (statusTimer !== undefined) window.clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(() => {
+      statusTimer = undefined;
+      flushStatus();
+    }, 20);
+  };
+
+  const waitUntilIdle = async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (destroyed || bridgeState === "disconnected") return false;
+      if (!inFlight && !pending && (bridgeState === "ready" || bridgeState === "standalone")) return true;
+      await new Promise(resolve => window.setTimeout(resolve, 5));
+    }
+    return false;
+  };
+
+  const requestAction = async (action: "save" | "quit"): Promise<boolean> => {
+    if (!handler || !(await waitUntilIdle()) || !documentID) return false;
+    const reply = validReply(await safePost({ kind: "action", documentID, baseRevision: revision, revision, payload: { action } }));
+    return reply?.kind === "ack" && reply.documentID === documentID && reply.revision === revision;
+  };
+
+  const destroy = (): void => {
+    destroyed = true;
+    statusPending = undefined;
+    if (statusTimer !== undefined) window.clearTimeout(statusTimer);
+    if (activeApply === applySnapshot) activeApply = () => false;
+  };
+
+  return { available: Boolean(handler), ready, postStatus, requestAction, destroy };
 }
 
 function transactionKind(update: ViewUpdate): PendingEdit["editKind"] {
@@ -370,6 +432,11 @@ declare global {
   interface Window {
     fieldnotes: {
       applyNativeSnapshot(snapshot: unknown): boolean;
+      setMode(mode: unknown): boolean;
+      cycleMode(): void;
+      setVimEnabled(enabled: unknown): boolean;
+      toggleVim(): void;
+      destroy(): void;
     };
   }
 }

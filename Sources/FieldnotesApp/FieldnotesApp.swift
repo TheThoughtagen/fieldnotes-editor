@@ -24,7 +24,28 @@ struct FieldnotesApplication: App {
                 }
                 .keyboardShortcut("o")
             }
+            CommandMenu("Editor") {
+                editorButton("Focus", .focus, key: "1")
+                editorButton("Source", .source, key: "2")
+                editorButton("Preview", .preview, key: "3")
+                editorButton("Cycle Mode", .cycleMode, key: "\\")
+                Divider()
+                editorButton("Toggle Vim", .toggleVim, key: "v", modifiers: [.command, .shift])
+            }
         }
+    }
+
+    private func editorButton(
+        _ title: String,
+        _ command: EditorCommand,
+        key: KeyEquivalent,
+        modifiers: EventModifiers = .command
+    ) -> some View {
+        Button(title) { activeSession()?.sendCommand?(command) }.keyboardShortcut(key, modifiers: modifiers)
+    }
+
+    private func activeSession() -> EditorSession? {
+        (NSApplication.shared.keyWindow?.windowController as? DocumentWindowController)?.session
     }
 }
 

@@ -9,7 +9,7 @@ test("boots one reusable CodeMirror editor with Vim enabled", async () => {
   const roots = document.querySelectorAll<HTMLElement>("#editor");
   expect(roots).toHaveLength(1);
   expect(roots[0]?.dataset.booted).toBe("true");
-  expect(roots[0]?.getAttribute("role")).toBe("application");
+  expect(roots[0]?.getAttribute("role")).toBeNull();
 
   const originalEditor = roots[0]?.querySelector<HTMLElement>(".cm-editor");
   expect(originalEditor).not.toBeNull();

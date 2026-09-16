@@ -67,6 +67,7 @@ struct WebEditorView: NSViewRepresentable {
             self.webView = webView
             webView.navigationDelegate = self
             webView.uiDelegate = self
+            session.sendCommand = { [weak self] command in self?.send(command) }
         }
 
         func pushSnapshotIfNeeded(revision: Int) {
@@ -86,11 +87,35 @@ struct WebEditorView: NSViewRepresentable {
         }
 
         func teardown(_ webView: WKWebView) {
+            session.sendCommand = nil
+            Task { @MainActor [weak webView] in
+                _ = try? await webView?.callAsyncJavaScript("window.fieldnotes.destroy()", arguments: [:], in: nil, contentWorld: .page)
+            }
             registration.teardown()
             webView.stopLoading()
             webView.navigationDelegate = nil
             webView.uiDelegate = nil
             self.webView = nil
+        }
+
+        private func send(_ command: EditorCommand) {
+            guard let webView else { return }
+            let script: String
+            let arguments: [String: Any]
+            switch command {
+            case .focus, .source, .preview:
+                script = "return window.fieldnotes.setMode(mode)"
+                arguments = ["mode": String(describing: command)]
+            case .cycleMode:
+                script = "window.fieldnotes.cycleMode()"
+                arguments = [:]
+            case .toggleVim:
+                script = "window.fieldnotes.toggleVim()"
+                arguments = [:]
+            }
+            Task { @MainActor [weak webView] in
+                _ = try? await webView?.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
+            }
         }
 
         func webView(
