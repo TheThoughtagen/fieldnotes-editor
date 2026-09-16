@@ -1,5 +1,5 @@
 import { documentSearchEntries } from "@cruciblesoftware/fieldnotes-renderer";
-export type AppCommand = "focus" | "source" | "preview" | "cycleMode" | "toggleVim" | "save" | "quit";
+export type AppCommand = "focus" | "source" | "preview" | "cycleMode" | "toggleVim" | "save" | "quit" | "colorTheme";
 export interface FileResult { id: string; title: string }
 export interface CommandPalette { open(mode: "files" | "commands" | "all"): void; destroy(): void }
 interface Options {
@@ -8,7 +8,7 @@ interface Options {
   runCommand(command: AppCommand): void; navigate?(line: number): void;
 }
 interface Entry { title: string; activate(): void }
-const commands: [AppCommand, string][] = [["focus", "Focus"], ["source", "Source"], ["preview", "Preview"], ["cycleMode", "Cycle mode"], ["toggleVim", "Toggle Vim"], ["save", "Save"], ["quit", "Close window"]];
+const commands: [AppCommand, string][] = [["colorTheme", "Color Theme…"], ["focus", "Focus"], ["source", "Source"], ["preview", "Preview"], ["cycleMode", "Cycle mode"], ["toggleVim", "Toggle Vim"], ["save", "Save"], ["quit", "Close window"]];
 let nextID = 0;
 export function createCommandPalette(options: Options): CommandPalette {
   let dialog: HTMLElement | undefined, input: HTMLInputElement, list: HTMLElement;

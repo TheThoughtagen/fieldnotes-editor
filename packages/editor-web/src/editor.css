@@ -113,3 +113,13 @@ body { font-size:16px; }
   .fieldnotes-focus .cm-content { padding:28px 20px 72px; }
   .fieldnotes-preview { padding:28px 24px 72px; }
 }
+
+/* Semantic aliases are inherited by all editor surfaces, including imported palettes. */
+:root { --fn-caret:var(--fn-accent); --fn-gutter:var(--fn-paper); --fn-gutter-text:var(--fn-muted); --fn-heading:var(--fn-text); --fn-link:var(--fn-accent); --fn-code:var(--fn-surface); --fn-comment:var(--fn-amber); --fn-keyword:var(--fn-purple); --fn-string:var(--fn-red); --fn-number:var(--fn-green); --fn-type:var(--fn-green); --fn-function:var(--fn-accent); --fn-variable:var(--fn-text); --fn-operator:var(--fn-purple); --fn-invalid:var(--fn-red); }
+.cm-editor .cm-content { caret-color:var(--fn-caret); }
+.cm-editor .cm-cursor,.cm-editor .cm-dropCursor { border-left-color:var(--fn-caret); }
+.cm-editor .cm-gutters { background:var(--fn-gutter); color:var(--fn-gutter-text); }
+.fieldnotes-focus .cm-line:is(.fn-atxheading1,.fn-atxheading2,.fn-atxheading3,.fn-atxheading4,.fn-atxheading5,.fn-atxheading6,.fn-setextheading1,.fn-setextheading2),.fieldnotes-preview :is(h1,h2,h3,h4,h5,h6) { color:var(--fn-heading); }
+.fieldnotes-focus .fn-link,.fieldnotes-preview a { color:var(--fn-link); }
+.fieldnotes-focus .fn-inlinecode,.fieldnotes-focus .cm-line.fn-fencedcode,.fieldnotes-preview code,.fieldnotes-preview pre { background:var(--fn-code); }
+.fieldnotes-preview pre code { background:transparent; }

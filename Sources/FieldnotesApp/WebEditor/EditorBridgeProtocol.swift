@@ -145,7 +145,7 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["action"])
             guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
             let action = try payloadContainer.decode(String.self, forKey: .init("action"))
-            guard ["save", "quit"].contains(action) else { throw BridgeProtocolError.invalidValue("action") }
+            guard ["save", "quit", "colorTheme"].contains(action) else { throw BridgeProtocolError.invalidValue("action") }
             payload = .init(text: nil, selection: nil, editKind: nil, action: action, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
         case .status:
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["presentationMode", "vimMode", "line", "column", "wordCount"])

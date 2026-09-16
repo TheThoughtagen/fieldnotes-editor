@@ -53,3 +53,27 @@ test("all Mermaid diagram types get a readable surface and mixed lists preserve 
     for (const item of root.querySelectorAll('.task-list-item')) expect(getComputedStyle(item).listStyleType).toBe('none');
   } finally { editor.destroy(); }
 });
+
+test("semantic theme tokens color syntax, headings and gutters without changing editor state", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const root = document.querySelector<HTMLElement>("#editor")!;
+  const editor = createEditor(root, { initialDocument: '# Heading\n\n```html\n<!-- Comment -->\n<p class="example">Hello</p>\n```' });
+  const style = document.documentElement.style;
+  try {
+    editor.setMode('source');
+    await expect.poll(() => root.querySelector('.cm-content')?.textContent).toContain('Comment');
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const state = editor.view.state, view = editor.view;
+    style.setProperty('--fn-gutter', '#123456');
+    style.setProperty('--fn-paper', '#182828');
+    style.setProperty('--fn-heading', '#abcdef');
+    style.setProperty('--fn-comment', '#fedcba');
+    expect(getComputedStyle(root.querySelector('.cm-gutters')!).backgroundColor).toBe('rgb(18, 52, 86)');
+    await expect.poll(() => [...root.querySelectorAll('.cm-content span')].some(span => getComputedStyle(span).color === 'rgb(254, 220, 186)')).toBe(true);
+    expect(editor.view).toBe(view); expect(editor.view.state).toBe(state);
+    editor.setMode('focus');
+    expect(getComputedStyle(root.querySelector('.fn-atxheading1')!).color).toBe('rgb(171, 205, 239)');
+    const gutter = root.querySelector('.cm-gutters');
+    expect(!gutter || getComputedStyle(gutter).display === 'none').toBe(true);
+  } finally { for (const key of ['gutter','paper','heading','comment']) style.removeProperty(`--fn-${key}`); editor.destroy(); }
+});

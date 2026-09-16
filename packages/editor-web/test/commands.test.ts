@@ -153,3 +153,14 @@ test("safe HTML link activation uses each anchor source line instead of matching
   }
   expect(destinations).toEqual([3, 5]);
 });
+
+test("Color Theme command dispatches the native picker action", async () => {
+  const { runCommand } = setup();
+  palette!.open("commands");
+  const input = document.querySelector<HTMLInputElement>("[role=combobox]")!;
+  input.value = "color theme"; input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  await vi.waitFor(() => expect(document.querySelectorAll("[role=option]")).toHaveLength(1));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  expect(runCommand).toHaveBeenCalledWith("colorTheme");
+  expect(document.querySelector("[role=dialog]")).toBeNull();
+});

@@ -68,7 +68,7 @@ export interface NativeBridge {
   postStatus(status: EditorStatus): void;
   validateSchema(): Promise<RenderDiagnostic[]>;
   postSchemaState(state: "none" | "valid" | "invalid"): void;
-  requestAction(action: "save" | "quit"): Promise<boolean>;
+  requestAction(action: "save" | "quit" | "colorTheme"): Promise<boolean>;
   importImage(request: ImageImportRequest): Promise<ImageImportResult | undefined>;
   destroy(): void;
 }
@@ -441,7 +441,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     return false;
   };
 
-  const requestAction = async (action: "save" | "quit"): Promise<boolean> => {
+  const requestAction = async (action: "save" | "quit" | "colorTheme"): Promise<boolean> => {
     if (!handler || !(await waitUntilIdle()) || !documentID) return false;
     const reply = validReply(await safePost({ kind: "action", documentID, baseRevision: revision, revision, payload: { action } }));
     return reply?.kind === "ack" && reply.documentID === documentID && reply.revision === revision;

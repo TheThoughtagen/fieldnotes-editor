@@ -7,6 +7,7 @@ import { lintKeymap } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
 import { Decoration, DecorationSet, drawSelection, dropCursor, EditorView, highlightActiveLine, highlightSpecialChars, keymap, lineNumbers, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { tags } from "@lezer/highlight";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { hydrateMermaid } from "@cruciblesoftware/fieldnotes-renderer/browser";
 import { renderDocument } from "@cruciblesoftware/fieldnotes-renderer";
@@ -137,16 +138,24 @@ const focusPlugin = ViewPlugin.fromClass(class {
   }
 }, { decorations: value => value.decorations });
 const focusExtension: Extension = [focusPlugin, EditorView.editorAttributes.of({ class: "fieldnotes-focus" })];
-const syntaxColors: Record<string, string> = {
-  "#404740": "muted", "#708": "purple", "#219": "purple", "#164": "green",
-  "#a11": "red", "#e40": "red", "#00f": "accent", "#30a": "purple",
-  "#085": "green", "#167": "teal", "#256": "teal", "#00c": "accent",
-  "#940": "amber", "#f00": "red",
-};
-const adaptiveHighlightStyle = HighlightStyle.define(defaultHighlightStyle.specs.map(spec => ({
-  ...spec, ...(spec.fontWeight === "bold" && spec.textDecoration === "underline" ? { textDecoration: "none" } : {}),
-  ...(typeof spec.color === "string" && syntaxColors[spec.color] ? { color: `var(--fn-${syntaxColors[spec.color]})` } : {}),
-})));
+const adaptiveHighlightStyle = HighlightStyle.define([
+  ...defaultHighlightStyle.specs.map(spec => ({
+    ...spec, ...(spec.fontWeight === "bold" && spec.textDecoration === "underline" ? { textDecoration: "none" } : {}),
+    ...(spec.color ? { color: "var(--fn-text)" } : {}),
+  })),
+  { tag: tags.meta, color: "var(--fn-muted)" },
+  { tag: tags.heading, color: "var(--fn-heading)", fontWeight: "bold" },
+  { tag: tags.link, color: "var(--fn-link)", textDecoration: "underline" },
+  { tag: [tags.keyword, tags.atom, tags.bool], color: "var(--fn-keyword)" },
+  { tag: [tags.string, tags.regexp, tags.escape], color: "var(--fn-string)" },
+  { tag: [tags.number, tags.literal], color: "var(--fn-number)" },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--fn-type)" },
+  { tag: tags.variableName, color: "var(--fn-variable)" },
+  { tag: tags.function(tags.variableName), color: "var(--fn-function)" },
+  { tag: tags.operator, color: "var(--fn-operator)" },
+  { tag: tags.comment, color: "var(--fn-comment)" },
+  { tag: tags.invalid, color: "var(--fn-invalid)" },
+]);
 const sourceExtension: Extension = EditorView.editorAttributes.of({ class: "fieldnotes-source" });
 const countWords = (text: string): number => {
   const trimmed = text.trim();

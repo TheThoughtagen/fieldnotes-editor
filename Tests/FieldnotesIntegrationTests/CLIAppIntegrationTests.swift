@@ -3,6 +3,35 @@ import Testing
 
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["FIELDNOTES_INTEGRATION_APP"] != nil))
 struct CLIAppIntegrationTests {
+    @Test func nativeThemeGeometryAfterRealAnimationFrames() async throws {
+        let app = try AppHarness(); defer { app.stop() }
+        let file = app.root.appendingPathComponent("themes.md")
+        let source = "---\ntitle: Native theme proof\n---\n\n# Native heading\n\n## Second heading\n\nSetext heading\n===\n\n" + String(repeating: "A long document with **strong** text and `code`.\n\n", count: 100)
+        try Data(source.utf8).write(to: file); try app.cli([file.path, "--mode", "focus"])
+        _ = try await app.until { $0["text"] as? String == source }
+        _ = try await app.command(["action":"theme", "theme":"midnight"])
+        let output = ProcessInfo.processInfo.environment["FIELDNOTES_THEME_EVIDENCE"]
+        for mode in ["source", "focus", "source"] {
+            _ = try await app.command(["action":mode])
+            _ = try await app.until { $0["mode"] as? String == mode }
+            var request: [String: Any] = ["action":"themeMeasure"]
+            if let output { request["capture"] = URL(fileURLWithPath: output).appendingPathComponent("theme-system-active-native-\(mode).png").path }
+            let state = try await app.command(request), proof = try #require(state["themeProof"] as? [String: Any])
+            #expect(proof["theme"] as? String == "midnight")
+            #expect(state["nativeText"] as? String == source)
+            if mode == "source" {
+                let rows = try #require(proof["rows"] as? [[String: Double]])
+                #expect(rows.count >= 10)
+                #expect(rows.allSatisfy { abs(($0["gutter"] ?? -1000) - ($0["line"] ?? 1000)) < 1 })
+            } else {
+                #expect(["none", "absent"].contains(proof["gutter"] as? String ?? ""))
+                #expect(abs(Double((proof["heading"] as? String ?? "").replacingOccurrences(of:"px",with:""))! - 28.8) < 0.001)
+            }
+            if let output { try JSONSerialization.data(withJSONObject: proof).write(to: URL(fileURLWithPath: output).appendingPathComponent("theme-system-active-native-\(mode).json")) }
+        }
+        _ = try await app.command(["action":"theme", "theme":"system"])
+    }
+
     @Test func logicalSelectionsAndLiteralImageDescriptionsCrossNativeBrowserBoundary() async throws {
         let app = try AppHarness()
         defer { app.stop() }

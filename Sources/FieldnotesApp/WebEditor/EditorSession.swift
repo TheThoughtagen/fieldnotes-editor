@@ -4,7 +4,7 @@ import FieldnotesCore
 import ImageIO
 import UniformTypeIdentifiers
 
-enum NativeEditorAction: String, Sendable { case save, quit }
+enum NativeEditorAction: String, Sendable { case save, quit, colorTheme }
 
 enum SchemaStatus: String, Sendable {
     case unavailable = "Schema —", checking = "Schema checking", valid = "Schema valid", invalid = "Schema error"

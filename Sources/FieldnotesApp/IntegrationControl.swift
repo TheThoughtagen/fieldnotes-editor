@@ -42,6 +42,7 @@ enum IntegrationControl {
               let controller = document.windowControllers.first as? DocumentWindowController,
               let web = webView(controller.window?.contentView) else { return ["count": documents.count] }
         let action = request["action"] as? String
+        var themeProof: [String: Any]?
         switch action {
         case "firstSave":
             firstSaveResult = "pending"
@@ -62,6 +63,25 @@ enum IntegrationControl {
                 if error != nil { controller.session.cancelFirstSaveTransition(); return nil }
                 firstSaveResult = document.fileURL?.path ?? url.path
                 return document.fileURL ?? url
+            }
+        case "source": controller.session.sendCommand?(.source)
+        case "theme": ThemeStore.shared.select(id: request["theme"] as? String ?? "system")
+        case "themeMeasure":
+            controller.window?.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true)
+            themeProof = try await web.callAsyncJavaScript("""
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const e = document.querySelector('#editor').fieldnotesEditor, v = e.view;
+                const rows = [...document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')].filter(e => getComputedStyle(e).visibility !== 'hidden').slice(0,12).map(e => {
+                    const n=Number(e.textContent), node=v.domAtPos(v.state.doc.line(n).from).node;
+                    const line=(node.nodeType===1?node:node.parentElement).closest('.cm-line');
+                    return {n,gutter:e.getBoundingClientRect().top,line:line?.getBoundingClientRect().top};
+                });
+                const heading = document.querySelector('.fn-atxheading1');
+                return {theme:document.documentElement.dataset.theme,rows,heading:heading?getComputedStyle(heading).fontSize:'',gutter:document.querySelector('.cm-gutters')?getComputedStyle(document.querySelector('.cm-gutters')).display:'absent',paper:getComputedStyle(document.querySelector('#editor')).backgroundColor};
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+            if let path = request["capture"] as? String {
+                let image = try await web.takeSnapshot(configuration: nil)
+                if let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) { try png.write(to: URL(fileURLWithPath: path)) }
             }
         case "focus": controller.session.sendCommand?(.focus)
         case "select":
@@ -94,6 +114,7 @@ enum IntegrationControl {
         default: break
         }
         var result = (try? await web.callAsyncJavaScript("const e = document.querySelector('#editor').fieldnotesEditor; return {text:e.view.state.doc.toString(),mode:e.mode,position:e.view.state.selection.main.head,anchor:e.view.state.selection.main.anchor,focusAlts:[...document.querySelectorAll('.fn-image-widget img')].map(i=>i.alt),previewAlts:[...document.querySelectorAll('article img')].map(i=>i.alt),imageLoaded:[...document.querySelectorAll('article img')].some(i=>i.complete&&i.naturalWidth>0),imageURL:document.querySelector('article img')?.getAttribute('src')||'',mermaid:!!document.querySelector('article svg')}", arguments: [:], in: nil, contentWorld: .page)) as? [String: Any] ?? [:]
+        result["themeProof"] = themeProof
         result["page"] = (try? await web.evaluateJavaScript("({errors:window.integrationErrors,ready:document.readyState,diagnostics:document.querySelector('.fieldnotes-diagnostics')?.textContent,url:location.href})"))
         result["savePanel"] = controller.window?.attachedSheet is NSSavePanel
         result["firstSaveResult"] = firstSaveResult

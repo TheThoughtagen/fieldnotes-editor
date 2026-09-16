@@ -34,6 +34,7 @@ final class DocumentWindowController: NSWindowController {
             switch action {
             case .save: (self.document as? NSDocument)?.save(nil)
             case .quit: self.window?.performClose(nil)
+            case .colorTheme: ThemePickerController.shared.show()
             }
         }
         session.onOpenWorkspaceDocument = { [weak self] url, line in
