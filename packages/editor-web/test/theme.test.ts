@@ -1,4 +1,10 @@
 import { expect, test } from "vitest";
+import { historyField, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
+import { html } from "@codemirror/lang-html";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { LanguageDescription, LanguageSupport, syntaxTree } from "@codemirror/language";
+import { Prec, StateEffect } from "@codemirror/state";
+import { getCM, Vim } from "@replit/codemirror-vim";
 import { createEditor } from "../src/editor.js";
 
 test("prose and source use deliberate typography and Focus decorations reach whole blocks", async () => {
@@ -54,26 +60,64 @@ test("all Mermaid diagram types get a readable surface and mixed lists preserve 
   } finally { editor.destroy(); }
 });
 
-test("semantic theme tokens color syntax, headings and gutters without changing editor state", async () => {
+test.each(["pending", "complete"] as const)("semantic theme tokens preserve editor state with %s lazy HTML parsing", async parseTiming => {
   document.body.innerHTML = '<main id="editor"></main>';
   const root = document.querySelector<HTMLElement>("#editor")!;
-  const editor = createEditor(root, { initialDocument: '# Heading\n\n```html\n<!-- Comment -->\n<p class="example">Hello</p>\n```' });
+  const source = '# Heading\n\n```html\n<!-- Comment -->\n<p class="example">Hello</p>\n```';
+  const editor = createEditor(root, { initialDocument: source });
   const style = document.documentElement.style;
+  let finishHTML!: (support: LanguageSupport) => void;
+  const htmlReady = new Promise<LanguageSupport>(resolve => { finishHTML = resolve; });
+  let loadStarted = false;
+  const lazyHTML = LanguageDescription.of({ name: "HTML", load: () => { loadStarted = true; return htmlReady; } });
   try {
     editor.setMode('source');
-    await expect.poll(() => root.querySelector('.cm-content')?.textContent).toContain('Comment');
-    await new Promise(resolve => setTimeout(resolve, 150));
-    const state = editor.view.state, view = editor.view;
+    // Hold an actual nested HTML parser load pending, independent of machine speed/module caching.
+    editor.view.dispatch({ effects: StateEffect.appendConfig.of(Prec.high(markdown({ base: markdownLanguage, codeLanguages: [lazyHTML] }))) });
+    await expect.poll(() => loadStarted).toBe(true);
+    const parsedHTML = () => syntaxTree(editor.view.state).resolveInner(source.indexOf('Comment'), 1).name === 'Comment';
+    expect(parsedHTML()).toBe(false);
+    if (parseTiming === 'complete') {
+      finishHTML(html());
+      await expect.poll(parsedHTML).toBe(true);
+    }
+    const view = editor.view;
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '\nRetained edit.' }, annotations: isolateHistory.of('full') });
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '\nRedo edit.' }, annotations: isolateHistory.of('full') });
+    expect(undo(view)).toBe(true);
+    view.dispatch({ selection: { anchor: 5 } });
+    const adapter = getCM(view)!;
+    Vim.handleKey(adapter, 'i', 'user');
+    expect(adapter.state.vim?.insertMode).toBe(true);
+    const state = view.state, history = state.field(historyField), vimState = adapter.state.vim;
+    expect(undoDepth(state)).toBe(1); expect(redoDepth(state)).toBe(1);
     style.setProperty('--fn-gutter', '#123456');
     style.setProperty('--fn-paper', '#182828');
     style.setProperty('--fn-heading', '#abcdef');
     style.setProperty('--fn-comment', '#fedcba');
+    // Token application itself must not replace state or dispatch an editor transaction.
+    expect(editor.view).toBe(view); expect(view.state).toBe(state);
     expect(getComputedStyle(root.querySelector('.cm-gutters')!).backgroundColor).toBe('rgb(18, 52, 86)');
+    finishHTML(html());
+    await expect.poll(parsedHTML).toBe(true);
     await expect.poll(() => [...root.querySelectorAll('.cm-content span')].some(span => getComputedStyle(span).color === 'rgb(254, 220, 186)')).toBe(true);
-    expect(editor.view).toBe(view); expect(editor.view.state).toBe(state);
+    // Lazy syntax parsing legitimately creates a new EditorState after the await.
+    // Its document, selection, history and Vim adapter must still be preserved.
+    if (parseTiming === 'pending') expect(view.state).not.toBe(state);
+    expect(editor.view).toBe(view);
+    expect(view.state.doc).toBe(state.doc);
+    expect(view.state.selection.eq(state.selection)).toBe(true);
+    expect(view.state.field(historyField)).toBe(history);
+    expect(getCM(view)).toBe(adapter); expect(editor.vimEnabled).toBe(true);
+    expect(adapter.state.vim).toBe(vimState);
+    expect(adapter.state.vim?.insertMode).toBe(true);
+    expect(undoDepth(view.state)).toBe(1); expect(redoDepth(view.state)).toBe(1);
+    expect(redo(view)).toBe(true); expect(view.state.doc.toString()).toBe(source + '\nRetained edit.\nRedo edit.');
+    expect(undo(view)).toBe(true); expect(view.state.doc.toString()).toBe(source + '\nRetained edit.');
+    expect(undo(view)).toBe(true); expect(view.state.doc.toString()).toBe(source);
     editor.setMode('focus');
     expect(getComputedStyle(root.querySelector('.fn-atxheading1')!).color).toBe('rgb(171, 205, 239)');
     const gutter = root.querySelector('.cm-gutters');
     expect(!gutter || getComputedStyle(gutter).display === 'none').toBe(true);
-  } finally { for (const key of ['gutter','paper','heading','comment']) style.removeProperty(`--fn-${key}`); editor.destroy(); }
+  } finally { finishHTML(html()); for (const key of ['gutter','paper','heading','comment']) style.removeProperty(`--fn-${key}`); editor.destroy(); }
 });
