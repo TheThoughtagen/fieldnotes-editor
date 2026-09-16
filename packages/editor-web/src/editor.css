@@ -4,6 +4,14 @@ html, body, #editor { height: 100%; margin: 0; }
 .cm-scroller { overflow: auto; }
 .fn-syntax-muted { opacity: 0.3; }
 .fn-syntax-active { opacity: 1; }
+/* Scale heading lines without replacing source text or styling Source mode. */
+.fieldnotes-focus .cm-line:is(.fn-atxheading1, .fn-atxheading2, .fn-atxheading3, .fn-atxheading4, .fn-atxheading5, .fn-atxheading6, .fn-setextheading1, .fn-setextheading2) { font-weight: 700; line-height: 1.4; }
+.fieldnotes-focus .cm-line:is(.fn-atxheading1, .fn-setextheading1) { font-size: 1.8em; }
+.fieldnotes-focus .cm-line:is(.fn-atxheading2, .fn-setextheading2) { font-size: 1.5em; }
+.fieldnotes-focus .cm-line.fn-atxheading3 { font-size: 1.3em; }
+.fieldnotes-focus .cm-line.fn-atxheading4 { font-size: 1.15em; }
+.fieldnotes-focus .cm-line.fn-atxheading5 { font-size: 1.05em; }
+.fieldnotes-focus .cm-line.fn-atxheading6 { font-size: 1em; }
 .fieldnotes-preview { box-sizing: border-box; max-width: 52rem; min-height: 100%; margin: 0 auto; padding: 2.5rem; line-height: 1.65; }
 .fieldnotes-preview[hidden], .fieldnotes-editor-host[hidden] { display: none; }
 .fieldnotes-preview pre, .fieldnotes-preview table { overflow-x: auto; }
