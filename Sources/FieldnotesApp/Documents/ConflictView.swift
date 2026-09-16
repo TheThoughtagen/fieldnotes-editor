@@ -5,7 +5,6 @@ struct ConflictView: View {
     let confirm: (ConflictReview) throws -> Void
     @State private var expanded = false
     @State private var review: ConflictReview?
-    @State private var merged = ""
     @State private var confirming = false
     @State private var error: String?
 
@@ -16,7 +15,7 @@ struct ConflictView: View {
                 Spacer()
                 Button(expanded ? "Hide comparison" : "Compare versions") {
                     expanded.toggle()
-                    if review == nil { review = ConflictReview(conflict: conflict); merged = conflict.ours }
+                    if review == nil { review = ConflictReview(conflict: conflict) }
                 }
             }
             if expanded {
@@ -26,11 +25,14 @@ struct ConflictView: View {
                     version("Disk", conflict.theirs.map { String(decoding: $0, as: UTF8.self) } ?? "File deleted")
                 }.frame(height: 140)
                 Text("Merge result").font(.caption)
-                TextEditor(text: $merged).font(.system(.body, design: .monospaced)).frame(height: 90)
+                TextEditor(text: Binding(
+                    get: { review?.mergeText ?? conflict.ours },
+                    set: { review?.mergeText = $0 }
+                )).font(.system(.body, design: .monospaced)).frame(height: 90)
                 HStack {
                     Button(conflict.theirs == nil ? "Keep editor for recreation…" : "Keep editor…") { choose(.editor) }
                     Button("Use disk…") { choose(.disk) }.disabled(conflict.theirs == nil)
-                    Button("Use merge result…") { choose(.merged(merged)) }
+                    Button("Use merge result…") { choose(.merged(review?.mergeText ?? conflict.ours)) }
                 }
                 Text("Choosing a version changes the editor only. Save writes it to disk.").font(.caption)
             }
@@ -38,6 +40,10 @@ struct ConflictView: View {
         }
         .padding(10)
         .background(.yellow.opacity(0.12))
+        .onChange(of: conflict.id) { _, _ in
+            review?.refresh(conflict)
+            confirming = false
+        }
         .alert("Confirm conflict resolution", isPresented: $confirming) {
             Button("Cancel", role: .cancel) { review?.cancel() }
             Button("Use selected version", role: .destructive) {

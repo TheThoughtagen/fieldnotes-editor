@@ -11,6 +11,7 @@ final class FieldnotesDocument: NSDocument {
     private let byteWriter: DocumentByteWriter
     private var hasLoaded = false
     private var pendingExternalRead = false
+    private var outstandingExternalReads = 0
     private var isClosed = false
     private var externalGeneration = 0
     private var activeSaveSnapshot: DocumentSaveSnapshot?
@@ -123,6 +124,8 @@ final class FieldnotesDocument: NSDocument {
         pendingExternalRead = false
         externalGeneration += 1
         let generation = externalGeneration
+        outstandingExternalReads += 1
+        defer { outstandingExternalReads -= 1 }
         do {
             let data = try await externalChanges.coordinatedRead(from: url, presenter: self)
             guard generation == externalGeneration, fileURL == url else { return }
@@ -158,7 +161,9 @@ final class FieldnotesDocument: NSDocument {
         completionHandler: @escaping (Error?) -> Void
     ) {
         guard activeSaveSnapshot == nil else { completionHandler(ExternalChangeError.saveInProgress); return }
-        if url.standardizedFileURL == fileURL?.standardizedFileURL {
+        // A location change requires resolving the current comparison first. Save To
+        // another URL remains available for a copy without abandoning the original.
+        if saveOperation == .saveAsOperation || url.standardizedFileURL == fileURL?.standardizedFileURL {
             guard state.conflict == nil else { completionHandler(ExternalChangeError.unresolvedConflict); return }
             guard state.externalReadError == nil else { completionHandler(ExternalChangeError.unreadableDisk); return }
         }
@@ -170,6 +175,9 @@ final class FieldnotesDocument: NSDocument {
             return
         }
 
+        // A notification already being read is just as pending as one arriving
+        // during the save. Retry it even if this save only writes a copy or fails.
+        if outstandingExternalReads > 0 { pendingExternalRead = true }
         externalGeneration += 1
         activeSaveSnapshot = snapshot
         let finish: @MainActor @Sendable (Error?) -> Void = { [weak self] error in
@@ -252,10 +260,14 @@ final class FieldnotesDocument: NSDocument {
     private func handleMove(to newURL: URL) {
         externalGeneration += 1
         super.presentedItemDidMove(to: newURL)
+        // NSDocument may defer its URL bookkeeping. Install the callback's location
+        // before launching our read so it cannot mistake the old path for a deletion.
+        fileURL = newURL
         for case let controller as DocumentWindowController in windowControllers {
             try? controller.session.refreshDocumentLocation(newURL)
             controller.workspaceURL = controller.session.currentWorkspaceURL
         }
+        Task { @MainActor [weak self] in await self?.reloadExternalChange() }
     }
 
     private func connectChangeAccounting() {

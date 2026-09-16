@@ -174,7 +174,10 @@ struct ExternalChangeTests {
     @Test("a move invalidates pending reads from the former path")
     func moveRejectsOldRead() async throws {
         let gate = ReadGate()
-        let document = FieldnotesDocument(externalChanges: .init(read: { _ in await gate.read() }))
+        let document = FieldnotesDocument(externalChanges: .init(read: { url in
+            if url.lastPathComponent == "old-gate.md" { return await gate.read() }
+            return Data("base".utf8)
+        }))
         document.fileURL = URL(fileURLWithPath: "/tmp/old-gate.md")
         try document.read(from: Data("base".utf8), ofType: type)
         document.presentedItemDidChange()
@@ -332,6 +335,164 @@ struct ExternalChangeTests {
         #expect(try Data(contentsOf: new) == Data("ours".utf8))
     }
 
+    @Test("copy, recovery, and failed saves retry an already-running external read")
+    func savesRetryOutstandingRead() async throws {
+        for mode in ["copy", "recovery", "failure"] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("retry-read-\(UUID())")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let original = directory.appendingPathComponent("original.md"), copy = directory.appendingPathComponent("copy.md")
+            try Data("base".utf8).write(to: original)
+            let gate = DelayedFirstRead()
+            let document = FieldnotesDocument(externalChanges: .init(read: { try await gate.read($0) }), byteWriter: { data, target in
+                if mode == "failure" { throw CocoaError(.fileWriteNoPermission) }
+                try data.write(to: target)
+            })
+            defer { document.close() }
+            try document.read(from: Data("base".utf8), ofType: type)
+            document.fileURL = original
+            document.fileType = type
+            document.state.acceptEditorText("ours", selection: .init(anchor: 4, head: 4), kind: .done)
+            try Data("theirs".utf8).write(to: original)
+            document.presentedItemDidChange()
+            await gate.waitUntilStarted()
+            if mode == "recovery" {
+                try Data().write(to: copy)
+                document.autosavedContentsFileURL = copy
+                document.fileModificationDate = try copy.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            }
+            let error: Error? = await withCheckedContinuation { continuation in
+                document.save(to: copy, ofType: type, for: mode == "recovery" ? .autosaveElsewhereOperation : .saveToOperation) {
+                    continuation.resume(returning: $0)
+                }
+            }
+            #expect((error != nil) == (mode == "failure"))
+            await gate.finish(Data("obsolete read".utf8))
+            for _ in 0..<100 where document.state.conflict == nil { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(document.state.conflict?.theirs == Data("theirs".utf8), "mode: \(mode)")
+            #expect(document.state.editorText == "ours")
+            #expect(document.state.baseText == "base")
+            #expect(document.fileURL?.path == original.path)
+        }
+    }
+
+    @Test("Save As requires resolution before leaving a conflicted original")
+    func saveAsRequiresConflictResolution() async throws {
+        let (document, original) = try fixture("base")
+        defer { document.close(); try? FileManager.default.removeItem(at: original.deletingLastPathComponent()) }
+        let target = original.deletingLastPathComponent().appendingPathComponent("new.md")
+        document.state.acceptEditorText("ours", selection: .init(anchor: 4, head: 4), kind: .done)
+        try Data("theirs".utf8).write(to: original)
+        try document.read(from: Data("theirs".utf8), ofType: type)
+        let conflict = try #require(document.state.conflict)
+        let staleReview = ConflictReview(conflict: conflict)
+        staleReview.choose(.disk)
+        let rejected: Error? = await withCheckedContinuation { continuation in
+            document.save(to: target, ofType: type, for: .saveAsOperation) { continuation.resume(returning: $0) }
+        }
+        #expect(rejected != nil)
+        #expect(!FileManager.default.fileExists(atPath: target.path))
+        #expect(document.fileURL?.path == original.path)
+        #expect(document.state.conflict == conflict)
+        let review = ConflictReview(conflict: conflict)
+        review.choose(.editor)
+        try document.confirmConflict(review)
+        let saved: Error? = await withCheckedContinuation { continuation in
+            document.save(to: target, ofType: type, for: .saveAsOperation) { continuation.resume(returning: $0) }
+        }
+        #expect(saved == nil)
+        try document.confirmConflict(staleReview)
+        #expect(document.state.baseText == "ours")
+        document.state.acceptEditorText("newer", selection: .init(anchor: 5, head: 5), kind: .done)
+        let resaved: Error? = await withCheckedContinuation { continuation in
+            document.save(to: target, ofType: type, for: .saveOperation) { continuation.resume(returning: $0) }
+        }
+        #expect(resaved == nil)
+        #expect(try Data(contentsOf: target) == Data("newer".utf8))
+        #expect(try Data(contentsOf: original) == Data("theirs".utf8))
+    }
+
+    @Test("Save As cannot carry an unreadable-original error to a new file")
+    func saveAsRequiresReadableOriginal() async throws {
+        let (document, original) = try fixture("base")
+        defer { document.close(); try? FileManager.default.removeItem(at: original.deletingLastPathComponent()) }
+        let target = original.deletingLastPathComponent().appendingPathComponent("new.md")
+        try Data([0xFF]).write(to: original)
+        document.presentedItemDidChange()
+        for _ in 0..<100 where document.state.externalReadError == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(document.state.externalReadError != nil)
+        let rejected: Error? = await withCheckedContinuation { continuation in
+            document.save(to: target, ofType: type, for: .saveAsOperation) { continuation.resume(returning: $0) }
+        }
+        #expect(rejected != nil)
+        #expect(!FileManager.default.fileExists(atPath: target.path))
+        #expect(document.fileURL?.path == original.path)
+        try Data("base".utf8).write(to: original)
+        document.presentedItemDidChange()
+        for _ in 0..<100 where document.state.externalReadError != nil { try await Task.sleep(for: .milliseconds(10)) }
+        let saved: Error? = await withCheckedContinuation { continuation in
+            document.save(to: target, ofType: type, for: .saveAsOperation) { continuation.resume(returning: $0) }
+        }
+        #expect(saved == nil)
+        #expect(document.state.externalReadError == nil)
+        #expect(document.state.baseText == "base")
+    }
+
+    @Test("move reconciliation retries a pending change at the new location without another notification")
+    func moveRetriesOutstandingReadAtNewLocation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("move-read-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let old = directory.appendingPathComponent("old.md"), new = directory.appendingPathComponent("new.md")
+        try Data("base".utf8).write(to: old)
+        let gate = DelayedFirstRead()
+        let document = FieldnotesDocument(externalChanges: .init(read: { try await gate.read($0) }))
+        defer { document.close() }
+        try document.read(from: Data("base".utf8), ofType: type)
+        document.fileURL = old
+        document.presentedItemDidChange()
+        await gate.waitUntilStarted()
+        try Data("changed then moved".utf8).write(to: old)
+        try FileManager.default.moveItem(at: old, to: new)
+        document.presentedItemDidMove(to: new)
+        await gate.finish(Data("obsolete read".utf8))
+        for _ in 0..<100 where document.state.editorText != "changed then moved" { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(await gate.urls.count >= 2)
+        #expect(await gate.urls.last?.path == new.path)
+        #expect(document.state.externalReadError == nil)
+        #expect(document.state.conflict == nil)
+        #expect(document.state.editorText == "changed then moved")
+        #expect(document.state.baseText == "changed then moved")
+        #expect(document.fileURL?.path == new.path)
+    }
+
+    @Test("merge drafts survive newer disk and editor versions while stale choices are invalidated")
+    func mergeDraftSurvivesConflictRevisions() throws {
+        let (document, url) = try fixture("base")
+        defer { document.close(); try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        document.state.acceptEditorText("ours", selection: .init(anchor: 4, head: 4), kind: .done)
+        try document.read(from: Data("theirs".utf8), ofType: type)
+        let review = ConflictReview(conflict: try #require(document.state.conflict))
+        review.mergeText = "authored merge draft"
+        review.choose(.merged(review.mergeText))
+        try document.read(from: Data("new disk".utf8), ofType: type)
+        review.refresh(try #require(document.state.conflict))
+        #expect(review.mergeText == "authored merge draft")
+        #expect(review.pending == nil)
+        #expect(review.conflict.theirs == Data("new disk".utf8))
+        review.choose(.merged(review.mergeText))
+        document.state.acceptEditorText("new editor", selection: .init(anchor: 10, head: 10), kind: .done)
+        review.refresh(try #require(document.state.conflict))
+        #expect(review.mergeText == "authored merge draft")
+        #expect(review.pending == nil)
+        #expect(review.conflict.ours == "new editor")
+        review.choose(.merged(review.mergeText))
+        try document.confirmConflict(review)
+        #expect(document.state.editorText == "authored merge draft")
+        #expect(document.state.baseText == "new disk")
+        #expect(document.state.conflict == nil)
+    }
+
     private func fixture(_ text: String) throws -> (FieldnotesDocument, URL) {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("external-\(UUID())")
@@ -347,6 +508,22 @@ private actor ReadGate {
     private var continuation: CheckedContinuation<Data?, Never>?
     func read() async -> Data? {
         await withCheckedContinuation { continuation = $0 }
+    }
+    func waitUntilStarted() async {
+        while continuation == nil { await Task.yield() }
+    }
+    func finish(_ data: Data?) { continuation?.resume(returning: data); continuation = nil }
+}
+
+private actor DelayedFirstRead {
+    private(set) var urls: [URL] = []
+    private var started = false
+    private var continuation: CheckedContinuation<Data?, Never>?
+    func read(_ url: URL) async throws -> Data? {
+        urls.append(url)
+        if started { return try ExternalChangeCoordinator.diskData(at: url) }
+        started = true
+        return await withCheckedContinuation { continuation = $0 }
     }
     func waitUntilStarted() async {
         while continuation == nil { await Task.yield() }

@@ -40,9 +40,18 @@ enum ExternalChangeError: LocalizedError {
 @MainActor
 @Observable
 final class ConflictReview {
-    let conflict: ConflictModel
+    private(set) var conflict: ConflictModel
+    var mergeText: String
     private(set) var pending: ConflictResolution?
-    init(conflict: ConflictModel) { self.conflict = conflict }
+    init(conflict: ConflictModel) {
+        self.conflict = conflict
+        mergeText = conflict.ours
+    }
+    func refresh(_ conflict: ConflictModel) {
+        guard self.conflict.id != conflict.id else { return }
+        self.conflict = conflict
+        pending = nil
+    }
     func choose(_ resolution: ConflictResolution) { pending = resolution }
     func cancel() { pending = nil }
 }

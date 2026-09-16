@@ -9,7 +9,6 @@ struct DocumentView: View {
         VStack(spacing: 0) {
             if let conflict = state.conflict {
                 ConflictView(conflict: conflict, confirm: confirmConflict)
-                    .id(conflict.id)
             }
             if let error = state.externalReadError {
                 Text("External change: \(error)").font(.callout).padding(8)
