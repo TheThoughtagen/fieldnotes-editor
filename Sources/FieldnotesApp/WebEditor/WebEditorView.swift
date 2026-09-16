@@ -99,6 +99,7 @@ struct WebEditorView: NSViewRepresentable {
             session.onContextChanged = nil
             session.sendCommand = nil
             session.onEnsureSaveLocation = nil
+            session.onChooseLinkInPlaceImage = nil
             Task { @MainActor [weak webView] in
                 _ = try? await webView?.callAsyncJavaScript("window.fieldnotes.destroy()", arguments: [:], in: nil, contentWorld: .page)
             }

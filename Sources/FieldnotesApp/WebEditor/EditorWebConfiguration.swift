@@ -4,6 +4,7 @@ import WebKit
 final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
     weak var session: EditorSession?
     private(set) var isRegistered = true
+    private var asynchronousTasks: [UUID: Task<Void, Never>] = [:]
 
     init(session: EditorSession) {
         self.session = session
@@ -29,13 +30,17 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
         do {
             let request = try EditorBridgeRequest.validate(body: body, isMainFrame: isMainFrame)
             if request.kind == .workspaceSearch || request.kind == .imageImport {
-                Task { @MainActor [weak self, session] in
+                let identifier = UUID()
+                let task = Task { @MainActor [weak self, weak session] in
+                    guard let session else { return }
                     let response = request.kind == .workspaceSearch
                         ? await session.prepareWorkspaceSearchResponse(to: request)
                         : await session.prepareImageImportResponse(to: request)
-                    guard self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); return }
+                    guard !Task.isCancelled, self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); self?.asynchronousTasks[identifier] = nil; return }
                     replyHandler(response.reply, nil)
+                    self?.asynchronousTasks[identifier] = nil
                 }
+                asynchronousTasks[identifier] = task
                 return
             }
             let response = session.prepareResponse(to: request)
@@ -59,6 +64,8 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     func markRemoved() {
         isRegistered = false
+        asynchronousTasks.values.forEach { $0.cancel() }
+        asynchronousTasks.removeAll()
         session = nil
     }
 }

@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createEditor, type EditorController } from "../src/editor.js";
 let editor: EditorController | undefined;
 afterEach(() => { editor?.destroy(); delete (window as Window & { webkit?: unknown }).webkit; document.body.replaceChildren(); });
-const context = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace", mode: "source", line: 2, column: 2, diagnostics: ["configuration notice"], schema: { type: "object", required: ["title"] } };
+const context = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace", allowRemoteImages: false, mode: "source", line: 2, column: 2, diagnostics: ["configuration notice"], schema: { type: "object", required: ["title"] } };
 function snapshot(openContext = context) { return { kind: "snapshot", documentID: "doc", revision: 0, text: "# First\nsecond", selection: { anchor: 0, head: 0 }, openContext }; }
 test("native schema, mode and position apply once and diagnostics remain visible while editing", async () => {
   const messages: Record<string, unknown>[] = [];

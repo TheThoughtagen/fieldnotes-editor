@@ -187,9 +187,14 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             }
             payload = .init(generation: generation, resultID: resultID)
         case .imageImport:
-            let allowed: Set<String> = payloadContainer.contains(.init("sourceURL"))
-                ? ["filename", "mimeType", "sourceURL", "altText", "linkInPlace", "generation"]
-                : ["filename", "mimeType", "dataBase64", "altText", "linkInPlace", "generation"]
+            let allowed: Set<String>
+            if payloadContainer.contains(.init("sourceURL")) {
+                allowed = ["filename", "mimeType", "sourceURL", "altText", "linkInPlace", "generation"]
+            } else if payloadContainer.contains(.init("dataBase64")) {
+                allowed = ["filename", "mimeType", "dataBase64", "altText", "linkInPlace", "generation"]
+            } else {
+                allowed = ["filename", "mimeType", "altText", "linkInPlace", "generation"]
+            }
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: allowed)
             guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
             let filename = try payloadContainer.decode(String.self, forKey: .init("filename"))
@@ -203,7 +208,7 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
                   !altText.isEmpty, altText.utf8.count <= 512, generation > 0,
                   dataBase64?.utf8.count ?? 0 <= 28_000_000,
                   (sourceURL == nil || (URL(string: sourceURL!)?.isFileURL == true)),
-                  linkInPlace ? sourceURL != nil && dataBase64 == nil : (sourceURL == nil) != (dataBase64 == nil)
+                  linkInPlace ? dataBase64 == nil : sourceURL == nil && dataBase64 != nil
             else { throw BridgeProtocolError.invalidValue("imageImport") }
             payload = .init(generation: generation, filename: filename, mimeType: mimeType, dataBase64: dataBase64, sourceURL: sourceURL, altText: altText, linkInPlace: linkInPlace)
         }

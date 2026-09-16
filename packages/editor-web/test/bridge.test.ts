@@ -405,7 +405,7 @@ declare global {
   }
 }
 
-const schemaContext = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace" as const, mode: null, line: null, column: null, diagnostics: [], schema: {} };
+const schemaContext = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace" as const, allowRemoteImages: false, mode: null, line: null, column: null, diagnostics: [], schema: {} };
 function schemaHarness() {
   const first = deferred<NativeReply>(), second = deferred<NativeReply>();
   const deliveries: { revision: number; generation: number; state: string; accepted: boolean }[] = [];

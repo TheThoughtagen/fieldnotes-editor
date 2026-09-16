@@ -48,13 +48,30 @@ final class DocumentWindowController: NSWindowController {
                 }
             }
             guard result == .OK, let url = panel.url else { return nil }
+            self.session.authorizeFirstSaveTransition(to: url)
             let error: Error? = await withCheckedContinuation { continuation in
                 document.save(to: url, ofType: document.fileType ?? "net.daringfireball.markdown", for: .saveAsOperation) {
                     continuation.resume(returning: $0)
                 }
             }
-            guard error == nil else { return nil }
+            guard error == nil else { self.session.cancelFirstSaveTransition(); return nil }
             return document.fileURL ?? url
+        }
+        session.onChooseLinkInPlaceImage = { [weak self] in
+            guard let self else { return nil }
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.image]
+            let result: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+                if let window = self.window {
+                    panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                } else {
+                    continuation.resume(returning: panel.runModal())
+                }
+            }
+            return result == .OK ? panel.url : nil
         }
     }
 

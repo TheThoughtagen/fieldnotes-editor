@@ -139,11 +139,15 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   let schema: Record<string, unknown> | undefined, contextDiagnostics: string[] = [];
   const presentation = new Compartment(); const vimMode = new Compartment();
   const initialDocument = options.initialDocument ?? "# FIELDNOTES\n\n";
-  let mode: PresentationMode = "focus", vimEnabled = true, destroyed = false, renderToken = 0, vimState = "normal";
+  let mode: PresentationMode = "focus", vimEnabled = true, destroyed = false, renderToken = 0, vimState = "normal", remoteImages = options.allowRemoteImages ?? false;
   let cachedWordCount = countWords(initialDocument);
   const renderStages = new Set<HTMLElement>();
-  let cachedRender: { source: string; schema: typeof schema; result: ReturnType<typeof renderDocument> } | undefined;
+  let cachedRender: { source: string; schema: typeof schema; remoteImages: boolean; result: ReturnType<typeof renderDocument> } | undefined;
   let bridge!: NativeBridge; let resourceGeneration = 0; let statusTimer: number | undefined; let renderPreview!: () => Promise<void>;
+  const reportImageDiagnostic = (message: string): void => {
+    if (destroyed) return;
+    diagnostics.textContent = [...contextDiagnostics, message].join("\n"); diagnostics.hidden = false;
+  };
   const publishStatus = (view: EditorView): void => {
     if (destroyed) return;
     if (statusTimer !== undefined) window.clearTimeout(statusTimer);
@@ -156,7 +160,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   const state = EditorState.create({ doc: initialDocument, extensions: [
     EditorState.allowMultipleSelections.of(true),
     vimMode.of(vim()), lineNumbers(), highlightSpecialChars(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(), highlightActiveLine(), highlightSelectionMatches(),
-    markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(defaultHighlightStyle, { fallback: true }), presentation.of([focusExtension, focusImages(() => resourceGeneration)]),
+    markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(defaultHighlightStyle, { fallback: true }), presentation.of([focusExtension, focusImages(() => resourceGeneration, () => remoteImages)]),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, ...lintKeymap, indentWithTab]), imageInputs(async request => {
       const imported = await bridge.importImage(request);
       if (imported?.diagnostic) {
@@ -165,7 +169,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
         diagnostics.hidden = false;
       }
       return imported;
-    }),
+    }, reportImageDiagnostic),
     EditorView.contentAttributes.of({ "aria-label": "Markdown source" }), EditorView.lineWrapping,
     EditorView.updateListener.of(update => {
       if (update.docChanged) {
@@ -177,6 +181,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   ] });
   const view = new EditorView({ state, parent: editorHost }); bridge = createNativeBridge(view, context => {
     resourceGeneration = context.generation;
+    remoteImages = context.allowRemoteImages;
     view.dispatch({ selection: view.state.selection });
     schema = context.schema ?? undefined; contextDiagnostics = context.diagnostics;
     if (context.mode) setMode(context.mode);
@@ -195,8 +200,8 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     const token = ++renderToken, detached = document.createElement("article");
     try {
       const source = view.state.doc.toString();
-      if (!cachedRender || cachedRender.source !== source || cachedRender.schema !== schema) {
-        cachedRender = { source, schema, result: (options.render ?? renderDocument)(source, { allowRemoteImages: options.allowRemoteImages ?? false, frontmatterSchema: schema }) };
+      if (!cachedRender || cachedRender.source !== source || cachedRender.schema !== schema || cachedRender.remoteImages !== remoteImages) {
+        cachedRender = { source, schema, remoteImages, result: (options.render ?? renderDocument)(source, { allowRemoteImages: remoteImages, frontmatterSchema: schema }) };
       }
       const result = await cachedRender.result;
       if (destroyed || token !== renderToken) return;
@@ -205,7 +210,10 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
       bridge.postSchemaState(contextDiagnostics.length || result.diagnostics.some(item => item.severity === "error") ? "invalid" : schema ? "valid" : "none");
       if (mode !== "preview") return;
       detached.innerHTML = result.html;
-      rewritePreviewImages(detached, { generation: resourceGeneration, allowRemoteImages: options.allowRemoteImages ?? false });
+      const renderGeneration = resourceGeneration;
+      rewritePreviewImages(detached, { generation: renderGeneration, allowRemoteImages: remoteImages }, message => {
+        if (!destroyed && token === renderToken && renderGeneration === resourceGeneration) reportImageDiagnostic(message);
+      });
       detached.querySelectorAll("iframe").forEach(frame => frame.remove());
       detached.className = "fieldnotes-render-stage";
       detached.setAttribute("aria-hidden", "true");
@@ -231,7 +239,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   const setMode = (next: PresentationMode): void => {
     if (destroyed || next === mode) return;
     mode = next; root.dataset.mode = next; preview.hidden = next !== "preview"; editorHost.hidden = next === "preview";
-    view.dispatch({ effects: presentation.reconfigure(next === "focus" ? [focusExtension, focusImages(() => resourceGeneration)] : sourceExtension) });
+    view.dispatch({ effects: presentation.reconfigure(next === "focus" ? [focusExtension, focusImages(() => resourceGeneration, () => remoteImages)] : sourceExtension) });
     if (next === "preview") void renderPreview(); else view.focus(); publishStatus(view);
   };
   const cycleMode = () => setMode(mode === "focus" ? "source" : mode === "source" ? "preview" : "focus");

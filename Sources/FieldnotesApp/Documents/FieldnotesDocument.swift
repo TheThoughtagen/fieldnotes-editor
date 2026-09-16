@@ -92,8 +92,27 @@ final class FieldnotesDocument: NSDocument {
         if let fileURL, let context = try? WorkspaceResolver().resolve(input: fileURL) {
             controller.workspaceURL = context.workspace
             controller.session.installOpenContext(.init(context: context, requestedMode: nil, line: nil, column: nil))
+        } else {
+            let unsaved = WorkspaceContext(
+                workspace: URL(fileURLWithPath: "/Fieldnotes Unsaved", isDirectory: true),
+                document: nil,
+                schema: .none,
+                localAssetPolicy: .documentDirectory
+            )
+            controller.session.installOpenContext(.init(context: unsaved, requestedMode: nil, line: nil, column: nil))
         }
         addWindowController(controller)
+    }
+
+    nonisolated override func presentedItemDidMove(to newURL: URL) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        MainActor.assumeIsolated {
+            super.presentedItemDidMove(to: newURL)
+            for case let controller as DocumentWindowController in windowControllers {
+                try? controller.session.refreshDocumentLocation(newURL)
+                controller.workspaceURL = controller.session.currentWorkspaceURL
+            }
+        }
     }
 
     private func connectChangeAccounting() {

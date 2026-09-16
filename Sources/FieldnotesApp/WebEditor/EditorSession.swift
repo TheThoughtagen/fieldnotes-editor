@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 import FieldnotesCore
+import ImageIO
+import UniformTypeIdentifiers
 
 enum NativeEditorAction: String, Sendable { case save, quit }
 
@@ -27,6 +29,18 @@ struct EditorSessionResponse {
     let deferredOpenLine: Int?
 }
 
+private final class ImageImportCancellation: @unchecked Sendable {
+    private let lock = NSLock(); private var value = false
+    var isCancelled: Bool { lock.withLock { value } }
+    func cancel() { lock.withLock { value = true } }
+}
+
+private struct ImportedImageResult: Sendable {
+    let path: String
+    let altText: String
+    let diagnostic: String?
+}
+
 @MainActor
 @Observable final class EditorSession {
     let state: DocumentState
@@ -37,6 +51,7 @@ struct EditorSessionResponse {
     private(set) var column = 1
     private(set) var wordCount = 0
     private(set) var schemaStatus: SchemaStatus = .unavailable
+    private(set) var remoteImagesEnabled: Bool
     private(set) var contextGeneration = 0
     private var pendingOpenContext: EditorOpenContext?
     private var contextAcknowledged = false
@@ -49,6 +64,10 @@ struct EditorSessionResponse {
     var onOpenWorkspaceDocument: ((URL, Int?) -> Void)?
     var sendCommand: ((EditorCommand) -> Void)?
     var onEnsureSaveLocation: (() async -> URL?)?
+    var onChooseLinkInPlaceImage: (() async -> URL?)?
+    private var imageImportInFlight = false
+    private var imageImportCancellation: ImageImportCancellation?
+    private var expectedFirstSaveURL: URL?
 
     var resourceScope: ResourceScope? {
         guard let context = pendingOpenContext?.context else { return nil }
@@ -76,10 +95,14 @@ struct EditorSessionResponse {
         self.state = state
         self.documentID = documentID
         self.defaults = defaults
+        remoteImagesEnabled = defaults.bool(forKey: "allowRemoteImages")
         self.indexBuilder = indexBuilder
     }
 
     func installOpenContext(_ context: EditorOpenContext) {
+        let incoming = context.context.document?.standardizedFileURL
+        if incoming == nil || incoming != expectedFirstSaveURL?.standardizedFileURL { imageImportCancellation?.cancel() }
+        if incoming == expectedFirstSaveURL?.standardizedFileURL { expectedFirstSaveURL = nil }
         contextGeneration += 1
         pendingOpenContext = context
         contextAcknowledged = false
@@ -94,6 +117,14 @@ struct EditorSessionResponse {
         let root = context.context.workspace, builder = indexBuilder
         indexTask = Task.detached(priority: .utility) { builder(root) }
         onContextChanged?()
+    }
+
+    func authorizeFirstSaveTransition(to url: URL) { expectedFirstSaveURL = url.standardizedFileURL }
+    func cancelFirstSaveTransition() { expectedFirstSaveURL = nil }
+    func toggleRemoteImages() {
+        remoteImagesEnabled.toggle(); defaults.set(remoteImagesEnabled, forKey: "allowRemoteImages")
+        guard pendingOpenContext != nil else { return }
+        contextGeneration += 1; contextAcknowledged = false; onContextChanged?()
     }
 
     func refreshDocumentLocation(_ url: URL) throws {
@@ -205,11 +236,18 @@ struct EditorSessionResponse {
     func prepareImageImportResponse(to request: EditorBridgeRequest) async -> EditorSessionResponse {
         guard request.kind == .imageImport, request.documentID == documentID,
               request.baseRevision == state.revision, request.revision == state.revision,
-              request.payload.generation == contextGeneration else { return response(rejection()) }
-        if pendingOpenContext?.context.document == nil {
+              request.payload.generation == contextGeneration, !imageImportInFlight else { return response(rejection()) }
+        imageImportInFlight = true
+        let cancellation = ImageImportCancellation(); imageImportCancellation = cancellation
+        defer { imageImportInFlight = false; if imageImportCancellation === cancellation { imageImportCancellation = nil } }
+        let startingRevision = state.revision
+        let startingGeneration = contextGeneration
+        let wasUnsaved = pendingOpenContext?.context.document == nil
+        if wasUnsaved {
             guard let savedURL = await onEnsureSaveLocation?() else {
                 return response(["kind": "imageImportCancelled"])
             }
+            guard !Task.isCancelled else { return response(["kind": "imageImportCancelled"]) }
             do {
                 if currentDocumentURL != savedURL.resolvingSymlinksInPath().standardizedFileURL {
                     try refreshDocumentLocation(savedURL)
@@ -217,7 +255,36 @@ struct EditorSessionResponse {
             }
             catch { return response(["kind": "imageImportFailed", "reason": "save location unavailable"]) }
         }
-        do { return response(try importImage(request.payload)) }
+        guard state.revision == startingRevision,
+              contextGeneration == startingGeneration || (wasUnsaved && contextGeneration == startingGeneration + 1), !Task.isCancelled
+        else { return response(rejection()) }
+        var chosenSource: URL?
+        if request.payload.linkInPlace == true, request.payload.sourceURL == nil {
+            guard let selected = await onChooseLinkInPlaceImage?() else {
+                return response(["kind": "imageImportCancelled"])
+            }
+            chosenSource = selected
+        }
+        guard state.revision == startingRevision,
+              contextGeneration == startingGeneration || (wasUnsaved && contextGeneration == startingGeneration + 1), !Task.isCancelled
+        else { return response(rejection()) }
+        do {
+            guard let context = pendingOpenContext?.context else { return response(rejection()) }
+            let payload = request.payload
+            let work = Task.detached {
+                try Self.importImage(payload, chosenSource: chosenSource, context: context, cancellation: cancellation)
+            }
+            let imported = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { cancellation.cancel(); work.cancel() })
+            guard !cancellation.isCancelled, !Task.isCancelled, state.revision == startingRevision,
+                  contextGeneration == startingGeneration || (wasUnsaved && contextGeneration == startingGeneration + 1)
+            else { return response(rejection()) }
+            var reply: [String: Any] = [
+                "kind": "imageImported", "path": imported.path, "altText": imported.altText,
+                "documentID": documentID, "revision": state.revision, "generation": contextGeneration,
+            ]
+            if let diagnostic = imported.diagnostic { reply["diagnostic"] = diagnostic }
+            return response(reply)
+        }
         catch { return response(["kind": "imageImportFailed", "reason": String(describing: error)]) }
     }
 
@@ -261,6 +328,7 @@ struct EditorSessionResponse {
             "workspaceName": open.context.workspace.lastPathComponent,
             "documentName": open.context.document?.lastPathComponent ?? NSNull(),
             "assetPolicy": open.context.localAssetPolicy.rawValue,
+            "allowRemoteImages": remoteImagesEnabled,
             "mode": presentationMode,
             "line": !contextAcknowledged && open.line != nil ? line : NSNull(),
             "column": !contextAcknowledged && open.line != nil ? column : NSNull(),
@@ -277,17 +345,17 @@ struct EditorSessionResponse {
         "workspaceMode." + root.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
-    private func importImage(_ payload: EditorBridgePayload) throws -> [String: Any] {
-        guard let context = pendingOpenContext?.context, let document = context.document,
+    nonisolated private static func importImage(_ payload: EditorBridgePayload, chosenSource: URL?, context: WorkspaceContext, cancellation: ImageImportCancellation) throws -> ImportedImageResult {
+        guard !cancellation.isCancelled, !Task.isCancelled, let document = context.document,
               let filename = payload.filename, let altText = payload.altText else {
-            return ["kind": "imageSaveRequired"]
+            throw ResourceError.malformedRequest
         }
         let documentDirectory = document.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
         let destination: URL
         if payload.linkInPlace == true {
-            guard let source = payload.sourceURL.flatMap(URL.init(string:)) else { throw ResourceError.malformedRequest }
+            guard let source = chosenSource ?? payload.sourceURL.flatMap(URL.init(string:)) else { throw ResourceError.malformedRequest }
             destination = source.resolvingSymlinksInPath().standardizedFileURL
-            let allowedRoot = resourceScope?.allowedRoot ?? documentDirectory
+            let allowedRoot = context.localAssetPolicy == .workspace ? context.workspace : documentDirectory
             guard contains(destination, in: allowedRoot),
                   (try? destination.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
                 throw ResourceError.outsideAllowedRoot
@@ -295,27 +363,35 @@ struct EditorSessionResponse {
         } else {
             let images = documentDirectory.appendingPathComponent("images", isDirectory: true)
             if let encoded = payload.dataBase64, let data = Data(base64Encoded: encoded), data.count <= 20_000_000 {
-                destination = try ImageImporter().write(data, suggestedName: filename, into: images)
-            } else if let source = payload.sourceURL.flatMap(URL.init(string:)) {
-                destination = try ImageImporter().copy(source, into: images)
+                guard validImage(data, declaredMIMEType: payload.mimeType) else { throw ResourceError.unavailable }
+                destination = try ImageImporter(beforeSecureOpen: {
+                    guard !cancellation.isCancelled, !Task.isCancelled else { throw CancellationError() }
+                }).write(data, suggestedName: filename, into: images, authorizedRoot: documentDirectory)
             } else { throw ResourceError.malformedRequest }
         }
         let relative = relativePath(from: documentDirectory, to: destination)
         let escapedAlt = altText.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "]", with: "\\]")
-        var reply: [String: Any] = ["kind": "imageImported", "path": relative, "altText": escapedAlt]
-        if payload.linkInPlace == true, context.localAssetPolicy == .documentDirectory {
-            reply["diagnostic"] = "Linked image remains in place; publication requires assets inside the post directory."
-        }
-        return reply
+        let diagnostic = payload.linkInPlace == true && context.localAssetPolicy == .documentDirectory
+            ? "Linked image remains in place; publication requires assets inside the post directory." : nil
+        return ImportedImageResult(path: relative, altText: escapedAlt, diagnostic: diagnostic)
     }
 
-    private func contains(_ candidate: URL, in root: URL) -> Bool {
+    nonisolated private static func validImage(_ data: Data, declaredMIMEType: String?) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let actualIdentifier = CGImageSourceGetType(source) as String?,
+              let actual = UTType(actualIdentifier), actual.conforms(to: .image),
+              let declaredMIMEType, let declared = UTType(mimeType: declaredMIMEType), declared.conforms(to: .image)
+        else { return false }
+        return actual == declared || actual.conforms(to: declared) || declared.conforms(to: actual)
+    }
+
+    nonisolated private static func contains(_ candidate: URL, in root: URL) -> Bool {
         let rootParts = root.resolvingSymlinksInPath().standardizedFileURL.pathComponents
         let candidateParts = candidate.resolvingSymlinksInPath().standardizedFileURL.pathComponents
         return candidateParts.count >= rootParts.count && Array(candidateParts.prefix(rootParts.count)) == rootParts
     }
 
-    private func relativePath(from base: URL, to target: URL) -> String {
+    nonisolated private static func relativePath(from base: URL, to target: URL) -> String {
         let baseParts = base.standardizedFileURL.pathComponents
         let targetParts = target.standardizedFileURL.pathComponents
         var common = 0

@@ -36,6 +36,7 @@ struct FieldnotesApplication: App {
                 editorButton("Cycle Mode", .cycleMode, key: "\\")
                 Divider()
                 editorButton("Toggle Vim", .toggleVim, key: "v", modifiers: [.command, .shift])
+                Button("Toggle Remote Images") { activeSession()?.toggleRemoteImages() }
             }
         }
     }

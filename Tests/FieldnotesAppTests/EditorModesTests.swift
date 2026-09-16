@@ -36,6 +36,7 @@ struct EditorModesTests {
             #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"","linkInPlace":false,"generation":2}}"#,
             #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"A","linkInPlace":true,"generation":2}}"#,
             #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"A","linkInPlace":false,"generation":2,"path":"/tmp/x"}}"#,
+            #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"secret.png","mimeType":"image/png","sourceURL":"file:///tmp/secret","altText":"A","linkInPlace":false,"generation":2}}"#,
         ] {
             #expect(throws: (any Error).self) { try EditorBridgeRequest.decode(body: JSONSerialization.jsonObject(with: Data(invalid.utf8))) }
         }

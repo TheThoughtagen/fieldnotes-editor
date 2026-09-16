@@ -9,6 +9,7 @@ interface Selection {
 export interface OpenContext {
   generation: number; workspaceName: string; documentName: string | null;
   assetPolicy: "workspace" | "document-directory";
+  allowRemoteImages: boolean;
   mode: "focus" | "source" | "preview" | null;
   line: number | null; column: number | null;
   diagnostics: string[]; schema: Record<string, unknown> | null;
@@ -105,6 +106,7 @@ installPublicAPI();
 
 export function createNativeBridge(view: EditorView, onContext?: (context: OpenContext) => void): NativeBridge {
   let contextGeneration = 0;
+  let contextDocumentName: string | null | undefined;
   const handler = (window as WebKitWindow).webkit?.messageHandlers?.native;
   let documentID = "";
   let revision = 0;
@@ -225,6 +227,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
       statusPending = undefined;
       schemaPending = undefined;
       contextGeneration = context.generation;
+      contextDocumentName = context.documentName;
       onContext?.(context);
     }
     void safePost({ kind: "contextApplied", documentID, baseRevision: revision, revision, payload: { generation: contextGeneration } }).catch(() => undefined);
@@ -462,8 +465,19 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
   };
   const importImage = async (request: ImageImportRequest): Promise<ImageImportResult | undefined> => {
     if (!handler || !contextGeneration || !(await waitUntilIdle()) || !documentID) return undefined;
-    const reply = await safePost({ kind: "imageImport", documentID, baseRevision: revision, revision, payload: { ...request, generation: contextGeneration } });
-    if (!isRecord(reply) || reply.kind !== "imageImported" || typeof reply.path !== "string" || !reply.path || typeof reply.altText !== "string" || !reply.altText || (reply.diagnostic !== undefined && typeof reply.diagnostic !== "string")) return undefined;
+    const requestDocumentID = documentID, requestRevision = revision, requestGeneration = contextGeneration;
+    const permitsFirstSave = contextDocumentName === null;
+    const reply = await safePost({ kind: "imageImport", documentID: requestDocumentID, baseRevision: requestRevision, revision: requestRevision, payload: { ...request, generation: requestGeneration } });
+    if (destroyed) return undefined;
+    if (isRecord(reply) && reply.kind === "imageImportCancelled") return undefined;
+    if (isRecord(reply) && reply.kind === "imageImportFailed") throw new Error(typeof reply.reason === "string" ? reply.reason : "Native image import failed");
+    if (!isRecord(reply) || reply.kind !== "imageImported" || reply.documentID !== requestDocumentID || reply.revision !== requestRevision
+      || typeof reply.generation !== "number" || !Number.isSafeInteger(reply.generation)
+      || (reply.generation !== requestGeneration && !(permitsFirstSave && reply.generation === requestGeneration + 1))
+      || documentID !== requestDocumentID || revision !== requestRevision
+      || typeof reply.path !== "string" || !reply.path || typeof reply.altText !== "string" || !reply.altText || (reply.diagnostic !== undefined && typeof reply.diagnostic !== "string")) {
+      throw new Error("Stale image import response");
+    }
     return { path: reply.path, altText: reply.altText, ...(typeof reply.diagnostic === "string" ? { diagnostic: reply.diagnostic } : {}) };
   };
   return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, importImage, postStatus, postSchemaState, requestAction, destroy };
@@ -488,10 +502,11 @@ function validSelection(value: unknown): value is Selection {
 }
 
 function validContext(value: unknown): value is OpenContext {
-  if (!isRecord(value) || Object.keys(value).length !== 9) return false;
+  if (!isRecord(value) || Object.keys(value).length !== 10) return false;
   return isInteger(value.generation) && (value.generation as number) > 0 && typeof value.workspaceName === "string"
     && (value.documentName === null || typeof value.documentName === "string")
     && ["workspace", "document-directory"].includes(value.assetPolicy as string)
+    && typeof value.allowRemoteImages === "boolean"
     && [null, "focus", "source", "preview"].includes(value.mode as string | null)
     && (value.line === null || (isInteger(value.line) && (value.line as number) > 0))
     && (value.column === null || (isInteger(value.column) && (value.column as number) > 0))

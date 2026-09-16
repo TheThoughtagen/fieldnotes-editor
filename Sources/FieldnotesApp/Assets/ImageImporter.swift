@@ -3,62 +3,63 @@ import Foundation
 enum ImageImportError: Error, Equatable {
     case sourceIsNotARegularFile
     case destinationEscaped
+    case sourceTooLarge
 }
 
-struct ImageImporter {
-    private let fileManager: FileManager
+struct ImageImporter: @unchecked Sendable {
+    private let beforeSecureOpen: (() throws -> Void)?
 
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
+    init(beforeSecureOpen: (() throws -> Void)? = nil) {
+        self.beforeSecureOpen = beforeSecureOpen
     }
 
     func copy(_ source: URL, into destinationDirectory: URL) throws -> URL {
+        try copy(source, into: destinationDirectory, authorizedRoot: destinationDirectory.deletingLastPathComponent())
+    }
+
+    func copy(_ source: URL, into destinationDirectory: URL, authorizedRoot: URL) throws -> URL {
         let canonicalSource = source.resolvingSymlinksInPath().standardizedFileURL
-        guard (try? canonicalSource.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-            throw ImageImportError.sourceIsNotARegularFile
-        }
-        let (canonicalRoot, destination) = try availableDestination(named: source.lastPathComponent, in: destinationDirectory)
-        guard contains(destination, in: canonicalRoot) else { throw ImageImportError.destinationEscaped }
-        var coordinationError: NSError?
-        var copyError: Error?
-        NSFileCoordinator().coordinate(readingItemAt: canonicalSource, options: [], writingItemAt: destination, options: .forReplacing, error: &coordinationError) { coordinatedSource, coordinatedDestination in
-            do { try fileManager.copyItem(at: coordinatedSource, to: coordinatedDestination) }
-            catch { copyError = error }
-        }
-        if let coordinationError { throw coordinationError }
-        if let copyError { throw copyError }
-        return destination
+        let data: Data
+        do { data = try SecureFileIO.read(canonicalSource, maximumBytes: 20_000_000) }
+        catch SecureFileError.tooLarge { throw ImageImportError.sourceTooLarge }
+        catch SecureFileError.notRegularFile { throw ImageImportError.sourceIsNotARegularFile }
+        catch { throw error }
+        return try coordinatedWrite(data, suggestedName: source.lastPathComponent, source: canonicalSource, destinationDirectory: destinationDirectory, authorizedRoot: authorizedRoot)
     }
 
     func write(_ data: Data, suggestedName: String, into destinationDirectory: URL) throws -> URL {
-        let (canonicalRoot, destination) = try availableDestination(named: suggestedName, in: destinationDirectory)
-        guard contains(destination, in: canonicalRoot) else { throw ImageImportError.destinationEscaped }
-        var coordinationError: NSError?
-        var writeError: Error?
-        NSFileCoordinator().coordinate(writingItemAt: destination, options: .forReplacing, error: &coordinationError) { coordinatedDestination in
-            do { try data.write(to: coordinatedDestination, options: .withoutOverwriting) }
-            catch { writeError = error }
-        }
-        if let coordinationError { throw coordinationError }
-        if let writeError { throw writeError }
-        return destination
+        try write(data, suggestedName: suggestedName, into: destinationDirectory, authorizedRoot: destinationDirectory.deletingLastPathComponent())
     }
 
-    private func availableDestination(named name: String, in destinationDirectory: URL) throws -> (URL, URL) {
-        let destinationRoot = destinationDirectory.standardizedFileURL
-        try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-        let canonicalRoot = destinationRoot.resolvingSymlinksInPath().standardizedFileURL
-        let safeName = sanitizedFilename(name)
-        let stem = (safeName as NSString).deletingPathExtension
-        let suffix = (safeName as NSString).pathExtension
-        var attempt = 1
-        var destination: URL
-        repeat {
-            let filename = attempt == 1 ? safeName : "\(stem)-\(attempt)\(suffix.isEmpty ? "" : ".\(suffix)")"
-            destination = canonicalRoot.appendingPathComponent(filename, isDirectory: false)
-            attempt += 1
-        } while fileManager.fileExists(atPath: destination.path)
-        return (canonicalRoot, destination)
+    func write(_ data: Data, suggestedName: String, into destinationDirectory: URL, authorizedRoot: URL) throws -> URL {
+        guard data.count <= 20_000_000 else { throw ImageImportError.sourceTooLarge }
+        return try coordinatedWrite(data, suggestedName: suggestedName, source: nil, destinationDirectory: destinationDirectory, authorizedRoot: authorizedRoot)
+    }
+
+    private func coordinatedWrite(_ data: Data, suggestedName: String, source: URL?, destinationDirectory: URL, authorizedRoot: URL) throws -> URL {
+        let root = authorizedRoot.resolvingSymlinksInPath().standardizedFileURL
+        let expectedDirectory = root.appendingPathComponent(destinationDirectory.lastPathComponent, isDirectory: true).standardizedFileURL
+        guard expectedDirectory.path == destinationDirectory.standardizedFileURL.path else { throw ImageImportError.destinationEscaped }
+        let safeName = sanitizedFilename(suggestedName)
+        var coordinationError: NSError?, operationError: Error?, result: URL?
+        let accessor: (URL, URL?) -> Void = { _, _ in
+            do {
+                try beforeSecureOpen?()
+                result = try SecureFileIO.writeUnique(data, suggestedName: safeName, directoryName: destinationDirectory.lastPathComponent, authorizedRoot: root)
+            } catch { operationError = error }
+        }
+        if let source {
+            NSFileCoordinator().coordinate(readingItemAt: source, options: [], writingItemAt: root, options: .forMerging, error: &coordinationError) { readURL, writeURL in accessor(writeURL, readURL) }
+        } else {
+            NSFileCoordinator().coordinate(writingItemAt: root, options: .forMerging, error: &coordinationError) { writeURL in accessor(writeURL, nil) }
+        }
+        if let coordinationError { throw coordinationError }
+        if let operationError {
+            if operationError as? SecureFileError == .unsafePath { throw ImageImportError.destinationEscaped }
+            throw operationError
+        }
+        guard let result else { throw ImageImportError.destinationEscaped }
+        return result
     }
 
     private func sanitizedFilename(_ filename: String) -> String {
@@ -66,23 +67,15 @@ struct ImageImporter {
         let rawStem = (filename as NSString).deletingPathExtension
         let folded = rawStem.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         let allowed = CharacterSet.alphanumerics
-        var stem = ""
-        var pendingSeparator = false
+        var stem = "", pendingSeparator = false
         for scalar in folded.unicodeScalars {
             if allowed.contains(scalar) {
                 if pendingSeparator && !stem.isEmpty { stem.append("-") }
-                stem.append(Character(scalar))
-                pendingSeparator = false
+                stem.append(Character(scalar)); pendingSeparator = false
             } else { pendingSeparator = true }
         }
         if stem.isEmpty { stem = "image" }
         let ext = rawExtension.unicodeScalars.allSatisfy { allowed.contains($0) } ? rawExtension : ""
         return String(stem.prefix(96)) + (ext.isEmpty ? "" : ".\(ext)")
-    }
-
-    private func contains(_ candidate: URL, in root: URL) -> Bool {
-        let rootParts = root.pathComponents
-        let candidateParts = candidate.standardizedFileURL.pathComponents
-        return candidateParts.count >= rootParts.count && Array(candidateParts.prefix(rootParts.count)) == rootParts
     }
 }
