@@ -41,13 +41,18 @@ export function rewritePreviewImages(root: ParentNode, policy: ImagePolicy, onFa
 
 const normalizedLabel = (value: string): string => value.slice(1, -1).trim().replace(/\s+/gu, " ").toLowerCase();
 const unescapeLabel = (value: string): string => value.replace(/\\(.)/gu, "$1");
+const destination = (value: string): string => {
+  const trimmed = value.trim();
+  const unwrapped = trimmed.startsWith("<") && trimmed.endsWith(">") ? trimmed.slice(1, -1) : trimmed;
+  return unwrapped.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/gu, "$1");
+};
 
 export function markdownImages(state: EditorState): MarkdownImage[] {
   const references = new Map<string, string>();
   syntaxTree(state).iterate({ enter(node) {
     if (node.name !== "LinkReference") return;
     const label = node.node.getChild("LinkLabel"), url = node.node.getChild("URL");
-    if (label && url) references.set(normalizedLabel(state.sliceDoc(label.from, label.to)), state.sliceDoc(url.from, url.to));
+    if (label && url) references.set(normalizedLabel(state.sliceDoc(label.from, label.to)), destination(state.sliceDoc(url.from, url.to)));
   } });
   const images: MarkdownImage[] = [];
   syntaxTree(state).iterate({ enter(node) {
@@ -55,9 +60,13 @@ export function markdownImages(state: EditorState): MarkdownImage[] {
     const marks = node.node.getChildren("LinkMark");
     const closeAlt = marks.find(mark => state.sliceDoc(mark.from, mark.to) === "]");
     const url = node.node.getChild("URL"), reference = node.node.getChild("LinkLabel");
-    const path = url ? state.sliceDoc(url.from, url.to) : reference ? references.get(normalizedLabel(state.sliceDoc(reference.from, reference.to))) : undefined;
-    if (!closeAlt || !path) return;
-    images.push({ from: node.from, to: node.to, alt: unescapeLabel(state.sliceDoc(node.from + 2, closeAlt.from)), path });
+    if (!closeAlt) return;
+    const alt = unescapeLabel(state.sliceDoc(node.from + 2, closeAlt.from));
+    const referenceText = reference ? state.sliceDoc(reference.from, reference.to) : "";
+    const referenceKey = referenceText === "[]" || !reference ? `[${alt}]` : referenceText;
+    const path = url ? destination(state.sliceDoc(url.from, url.to)) : references.get(normalizedLabel(referenceKey));
+    if (!path) return;
+    images.push({ from: node.from, to: node.to, alt, path });
   } });
   return images;
 }
@@ -123,13 +132,17 @@ function meaningfulAlt(filename: string): string | undefined {
 interface PendingRange { from: number; to: number; touched: boolean; active: boolean; }
 
 export function imageInputs(importImage: (request: ImageImportRequest) => Promise<ImageImportResult | undefined>, reportDiagnostic: (message: string) => void = () => undefined): Extension {
-  const pending = new Set<PendingRange>(); let destroyed = false;
+  const pending = new Set<PendingRange>(); let destroyed = false, activeFileReads = 0;
   const mapper = ViewPlugin.fromClass(class {
     update(update: ViewUpdate) {
       if (!update.docChanged) return;
       for (const range of pending) {
         if (range.from !== range.to) update.changes.iterChangedRanges((fromA, toA) => { if (fromA < range.to && toA > range.from) range.touched = true; });
-        range.from = update.changes.mapPos(range.from, -1); range.to = update.changes.mapPos(range.to, 1);
+        if (range.from === range.to) {
+          range.from = range.to = update.changes.mapPos(range.from, 1);
+        } else {
+          range.from = update.changes.mapPos(range.from, 1); range.to = update.changes.mapPos(range.to, -1);
+        }
       }
     }
     destroy() { destroyed = true; for (const range of pending) range.active = false; pending.clear(); }
@@ -147,9 +160,14 @@ export function imageInputs(importImage: (request: ImageImportRequest) => Promis
       const altText = meaningfulAlt(file.name || "image"); if (!altText) return;
       const linkInPlace = event instanceof DragEvent && event.altKey;
       const uri = transfer?.getData("text/uri-list").split(/\r?\n/u).find(line => line.startsWith("file://"));
-      const request: ImageImportRequest = linkInPlace
-        ? { filename: file.name, mimeType: file.type, ...(uri ? { sourceURL: uri } : {}), altText, linkInPlace: true }
-        : { filename: file.name, mimeType: file.type, dataBase64: base64(await file.arrayBuffer()), altText, linkInPlace: false };
+      let request: ImageImportRequest;
+      if (linkInPlace) request = { filename: file.name, mimeType: file.type, ...(uri ? { sourceURL: uri } : {}), altText, linkInPlace: true };
+      else {
+        if (activeFileReads >= 2) { reportDiagnostic("Too many image reads are pending"); return; }
+        activeFileReads += 1;
+        try { request = { filename: file.name, mimeType: file.type, dataBase64: base64(await file.arrayBuffer()), altText, linkInPlace: false }; }
+        finally { activeFileReads -= 1; }
+      }
       const imported = await importImage(request);
       if (!imported || destroyed || !range.active || range.touched) return;
       const markdown = `![${imported.altText}](${imported.path})`;

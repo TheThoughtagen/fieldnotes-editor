@@ -474,6 +474,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     if (!isRecord(reply) || reply.kind !== "imageImported" || reply.documentID !== requestDocumentID || reply.revision !== requestRevision
       || typeof reply.generation !== "number" || !Number.isSafeInteger(reply.generation)
       || (reply.generation !== requestGeneration && !(permitsFirstSave && reply.generation === requestGeneration + 1))
+      || (contextGeneration !== requestGeneration && !(permitsFirstSave && contextGeneration === requestGeneration + 1 && reply.generation === contextGeneration))
       || documentID !== requestDocumentID || revision !== requestRevision
       || typeof reply.path !== "string" || !reply.path || typeof reply.altText !== "string" || !reply.altText || (reply.diagnostic !== undefined && typeof reply.diagnostic !== "string")) {
       throw new Error("Stale image import response");

@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
@@ -19,6 +19,17 @@ test("parsed image ranges handle titles, references, balanced URLs, escaped alt 
     { from: 0, to: 36, alt: "Chart", path: "images/chart.svg" },
     { from: 37, to: 60, alt: "Escaped ]", path: "a(b).png" },
     { from: 61, to: 72, alt: "Ref", path: "assets/ref.png" },
+  ]);
+});
+
+test("parsed image destinations normalize angle, escaped, collapsed, and shortcut forms", () => {
+  const source = "![Angle](<images/my%20file.png>)\n![Escaped](images/a\\(b\\).png)\n![Collapsed][]\n![Shortcut]\n\n[Collapsed]: images/c.png\n[Shortcut]: images/s.png";
+  const state = EditorState.create({ doc: source, extensions: markdown() });
+  expect(markdownImages(state)).toEqual([
+    { from: 0, to: 32, alt: "Angle", path: "images/my%20file.png" },
+    { from: 33, to: 62, alt: "Escaped", path: "images/a(b).png" },
+    { from: 63, to: 77, alt: "Collapsed", path: "images/c.png" },
+    { from: 78, to: 89, alt: "Shortcut", path: "images/s.png" },
   ]);
 });
 
@@ -188,6 +199,22 @@ test("deferred paste maps its original insertion point and ignores later selecti
   } finally { window.prompt = prompt; view.destroy(); }
 });
 
+test("typing at a collapsed pending paste point is preserved during deferred file read", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  let finish!: (value: ArrayBuffer) => void;
+  const file = new File(["x"], "a.png", { type: "image/png" });
+  Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+  vi.spyOn(window, "prompt").mockReturnValue("A");
+  const view = new EditorView({ parent: document.querySelector("#editor")!, state: EditorState.create({ doc: "abcd", selection: { anchor: 2 }, extensions: [imageInputs(async () => ({ path: "images/a.png", altText: "A" }))] }) });
+  const transfer = new DataTransfer(); transfer.items.add(file);
+  view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  view.dispatch({ changes: { from: 2, insert: "NEW" } });
+  finish(new Uint8Array([1]).buffer); await settle();
+  expect(view.state.doc.toString()).toBe("abNEW![A](images/a.png)cd");
+  view.destroy();
+});
+
 test("editing the selected source while import is pending cancels insertion", async () => {
   document.body.innerHTML = '<main id="editor"></main>';
   let finish!: (value: { path: string; altText: string }) => void;
@@ -200,6 +227,20 @@ test("editing the selected source while import is pending cancels insertion", as
     finish({ path: "images/a.png", altText: "Image" }); await settle();
     expect(view.state.doc.toString()).toBe("rXplace me");
   } finally { window.prompt = prompt; view.destroy(); }
+});
+
+test("typing at pending replacement boundaries remains outside the eventual replacement", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  let finish!: (value: { path: string; altText: string }) => void;
+  vi.spyOn(window, "prompt").mockReturnValue("A");
+  const view = new EditorView({ parent: document.querySelector("#editor")!, state: EditorState.create({ doc: "abcd", selection: { anchor: 1, head: 3 }, extensions: [imageInputs(() => new Promise(resolve => { finish = resolve; }))] }) });
+  const transfer = new DataTransfer(); transfer.items.add(new File(["x"], "a.png", { type: "image/png" }));
+  view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+  await settle();
+  view.dispatch({ changes: [{ from: 1, insert: "X" }, { from: 3, insert: "Y" }] });
+  finish({ path: "images/a.png", altText: "A" }); await settle();
+  expect(view.state.doc.toString()).toBe("aX![A](images/a.png)Yd");
+  view.destroy();
 });
 
 test("oversized files are rejected before allocation and failed reads are visible", async () => {
@@ -222,6 +263,25 @@ test("oversized files are rejected before allocation and failed reads are visibl
     expect(diagnostics.at(-1)).toBe("Image import failed: read denied");
     expect(view.state.doc.length).toBe(0);
   } finally { window.prompt = prompt; view.destroy(); }
+});
+
+test("browser file reads are capped before a third arrayBuffer allocation", async () => {
+  document.body.innerHTML = '<main id="editor"></main>'; vi.spyOn(window, "prompt").mockReturnValue("A");
+  const diagnostics: string[] = [], resolvers: Array<(value: ArrayBuffer) => void> = [], reads = [0, 0, 0];
+  const files = reads.map((_, index) => {
+    const file = new File(["x"], `a${index}.png`, { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", { value: () => { reads[index]! += 1; return new Promise<ArrayBuffer>(resolve => resolvers.push(resolve)); } });
+    return file;
+  });
+  const view = new EditorView({ parent: document.querySelector("#editor")!, state: EditorState.create({ extensions: [imageInputs(async () => undefined, value => diagnostics.push(value))] }) });
+  for (const file of files) {
+    const transfer = new DataTransfer(); transfer.items.add(file);
+    view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+    await Promise.resolve();
+  }
+  expect(reads).toEqual([1, 1, 0]);
+  expect(diagnostics).toContain("Too many image reads are pending");
+  resolvers.forEach(resolve => resolve(new Uint8Array([1]).buffer)); await settle(); view.destroy();
 });
 
 test("drop uses document coordinates instead of replacing the old selection", async () => {

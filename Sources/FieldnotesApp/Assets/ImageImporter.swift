@@ -32,12 +32,20 @@ struct ImageImporter: @unchecked Sendable {
     }
 
     func write(_ data: Data, suggestedName: String, into destinationDirectory: URL, authorizedRoot: URL) throws -> URL {
+        try write(data, suggestedName: suggestedName, into: destinationDirectory, authority: SecureDirectoryAuthority(granting: authorizedRoot))
+    }
+
+    func write(_ data: Data, suggestedName: String, into destinationDirectory: URL, authority: SecureDirectoryAuthority) throws -> URL {
         guard data.count <= 20_000_000 else { throw ImageImportError.sourceTooLarge }
-        return try coordinatedWrite(data, suggestedName: suggestedName, source: nil, destinationDirectory: destinationDirectory, authorizedRoot: authorizedRoot)
+        return try coordinatedWrite(data, suggestedName: suggestedName, source: nil, destinationDirectory: destinationDirectory, authority: authority)
     }
 
     private func coordinatedWrite(_ data: Data, suggestedName: String, source: URL?, destinationDirectory: URL, authorizedRoot: URL) throws -> URL {
-        let root = authorizedRoot.resolvingSymlinksInPath().standardizedFileURL
+        try coordinatedWrite(data, suggestedName: suggestedName, source: source, destinationDirectory: destinationDirectory, authority: SecureDirectoryAuthority(granting: authorizedRoot))
+    }
+
+    private func coordinatedWrite(_ data: Data, suggestedName: String, source: URL?, destinationDirectory: URL, authority: SecureDirectoryAuthority) throws -> URL {
+        let root = authority.displayURL
         let expectedDirectory = root.appendingPathComponent(destinationDirectory.lastPathComponent, isDirectory: true).standardizedFileURL
         guard expectedDirectory.path == destinationDirectory.standardizedFileURL.path else { throw ImageImportError.destinationEscaped }
         let safeName = sanitizedFilename(suggestedName)
@@ -45,7 +53,7 @@ struct ImageImporter: @unchecked Sendable {
         let accessor: (URL, URL?) -> Void = { _, _ in
             do {
                 try beforeSecureOpen?()
-                result = try SecureFileIO.writeUnique(data, suggestedName: safeName, directoryName: destinationDirectory.lastPathComponent, authorizedRoot: root)
+                result = try SecureFileIO.writeUnique(data, suggestedName: safeName, directoryName: destinationDirectory.lastPathComponent, authority: authority)
             } catch { operationError = error }
         }
         if let source {

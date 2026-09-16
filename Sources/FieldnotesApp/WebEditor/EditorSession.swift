@@ -68,19 +68,11 @@ private struct ImportedImageResult: Sendable {
     private var imageImportInFlight = false
     private var imageImportCancellation: ImageImportCancellation?
     private var expectedFirstSaveURL: URL?
+    private var documentDirectoryAuthority: SecureDirectoryAuthority?
+    private var grantedResourceScope: ResourceScope?
 
     var resourceScope: ResourceScope? {
-        guard let context = pendingOpenContext?.context else { return nil }
-        let root: URL
-        switch context.localAssetPolicy {
-        case .workspace:
-            root = context.workspace
-        case .documentDirectory:
-            guard let document = context.document else { return nil }
-            root = document.deletingLastPathComponent()
-        }
-        let base = context.document?.deletingLastPathComponent() ?? root
-        return ResourceScope(generation: contextGeneration, allowedRoot: root.resolvingSymlinksInPath().standardizedFileURL, baseURL: base.resolvingSymlinksInPath().standardizedFileURL)
+        grantedResourceScope
     }
 
     var currentWorkspaceURL: URL? {
@@ -105,6 +97,11 @@ private struct ImportedImageResult: Sendable {
         if incoming == expectedFirstSaveURL?.standardizedFileURL { expectedFirstSaveURL = nil }
         contextGeneration += 1
         pendingOpenContext = context
+        documentDirectoryAuthority = context.context.document.flatMap { try? SecureDirectoryAuthority(granting: $0.deletingLastPathComponent()) }
+        if let document = context.context.document {
+            let root = context.context.localAssetPolicy == .workspace ? context.context.workspace : document.deletingLastPathComponent()
+            grantedResourceScope = ResourceScope(generation: contextGeneration, allowedRoot: root.resolvingSymlinksInPath().standardizedFileURL, baseURL: document.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL)
+        } else { grantedResourceScope = nil }
         contextAcknowledged = false
         switch context.context.schema {
         case .none: schemaStatus = .unavailable
@@ -124,7 +121,11 @@ private struct ImportedImageResult: Sendable {
     func toggleRemoteImages() {
         remoteImagesEnabled.toggle(); defaults.set(remoteImagesEnabled, forKey: "allowRemoteImages")
         guard pendingOpenContext != nil else { return }
-        contextGeneration += 1; contextAcknowledged = false; onContextChanged?()
+        contextGeneration += 1; contextAcknowledged = false
+        if let scope = grantedResourceScope {
+            grantedResourceScope = ResourceScope(generation: contextGeneration, replacingGenerationOf: scope)
+        }
+        onContextChanged?()
     }
 
     func refreshDocumentLocation(_ url: URL) throws {
@@ -270,9 +271,10 @@ private struct ImportedImageResult: Sendable {
         else { return response(rejection()) }
         do {
             guard let context = pendingOpenContext?.context else { return response(rejection()) }
+            let authority = documentDirectoryAuthority
             let payload = request.payload
             let work = Task.detached {
-                try Self.importImage(payload, chosenSource: chosenSource, context: context, cancellation: cancellation)
+                try Self.importImage(payload, chosenSource: chosenSource, context: context, documentAuthority: authority, cancellation: cancellation)
             }
             let imported = try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { cancellation.cancel(); work.cancel() })
             guard !cancellation.isCancelled, !Task.isCancelled, state.revision == startingRevision,
@@ -345,7 +347,7 @@ private struct ImportedImageResult: Sendable {
         "workspaceMode." + root.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
-    nonisolated private static func importImage(_ payload: EditorBridgePayload, chosenSource: URL?, context: WorkspaceContext, cancellation: ImageImportCancellation) throws -> ImportedImageResult {
+    nonisolated private static func importImage(_ payload: EditorBridgePayload, chosenSource: URL?, context: WorkspaceContext, documentAuthority: SecureDirectoryAuthority?, cancellation: ImageImportCancellation) throws -> ImportedImageResult {
         guard !cancellation.isCancelled, !Task.isCancelled, let document = context.document,
               let filename = payload.filename, let altText = payload.altText else {
             throw ResourceError.malformedRequest
@@ -361,12 +363,13 @@ private struct ImportedImageResult: Sendable {
                 throw ResourceError.outsideAllowedRoot
             }
         } else {
+            guard let documentAuthority else { throw ResourceError.unavailable }
             let images = documentDirectory.appendingPathComponent("images", isDirectory: true)
             if let encoded = payload.dataBase64, let data = Data(base64Encoded: encoded), data.count <= 20_000_000 {
                 guard validImage(data, declaredMIMEType: payload.mimeType) else { throw ResourceError.unavailable }
                 destination = try ImageImporter(beforeSecureOpen: {
                     guard !cancellation.isCancelled, !Task.isCancelled else { throw CancellationError() }
-                }).write(data, suggestedName: filename, into: images, authorizedRoot: documentDirectory)
+                }).write(data, suggestedName: filename, into: images, authority: documentAuthority)
             } else { throw ResourceError.malformedRequest }
         }
         let relative = relativePath(from: documentDirectory, to: destination)

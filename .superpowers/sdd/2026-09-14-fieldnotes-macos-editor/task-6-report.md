@@ -86,3 +86,27 @@ Implemented native-scoped local image loading, coordinated image imports, explic
 
 - Finder-to-WKWebView URI-list behavior varies by WebKit/macOS. When no trusted URI is present, Option-drop now opens the native file picker, so the production workflow remains available without relying on the browser drag payload. Packaged-app panel and Finder automation remains part of the later native end-to-end harness.
 - The custom resource URL uses a generation authority and a native-validated relative-path query. It does not expose an unrestricted filesystem root or broaden `loadFileURL` read access.
+
+## Review remediation round 2
+
+### RED evidence
+
+- The round-one re-reviews demonstrated that use-time `canonicalExistingPath` could follow a swapped ancestor of the authorized root and adopt the external target. The exact standalone scenario read `OUTSIDE` and wrote `external/root/images/b.png`.
+- Parser probes showed raw `<...>` and escaped destinations plus unresolved collapsed and shortcut references. A position-mapping probe showed a pending collapsed `(2,2)` range expanding to `(2,5)` around newly typed text. A deferred bridge reply remained accepted after a newer same-revision context.
+- Resource scheduling immediately failed a ninth valid image, while stopping a wrapper task removed it from accounting without cancelling its detached disk worker. Browser inputs could also begin unbounded `arrayBuffer()` reads.
+
+### GREEN evidence
+
+- `swift test --filter ImageImporterTests`: 22/22 passed, including an ancestor-of-root swap that can neither read nor write outside the grant and a controlled slow-reader test proving eight active workers maximum, actual worker cancellation, queued request progress, and successful completion of every noncancelled image.
+- Focused browser tests: `images.test.ts` 19/19 and `bridge.test.ts` 25/25 passed. They cover normalized angle/escaped destinations, full/collapsed/shortcut references with exact ranges, deferred file-read typing, replacement-boundary edits, the pre-read cap, current-context reply rejection, and the valid first-save transition.
+- `swift test`: 79 tests in 7 suites passed.
+- `npm run test --workspace @thethoughtagen/fieldnotes-editor-web`: production build, 227/227 browser tests, editor security checks, and offline-bundle checks passed.
+- Editor workspace `npm run typecheck` passed; `git diff --check` passed.
+
+### Changes and self-review
+
+- `SecureDirectoryAuthority` captures the canonical root at the native grant boundary. Resource and document-directory authorities are retained with the active session context; I/O later performs only a no-follow component walk of that already granted canonical path. It no longer opens the caller pathname and adopts a new `F_GETPATH` target after an ancestor swap. Generation-only policy replay preserves the same authority.
+- The resource scheme now has an eight-worker pool and a cancellable FIFO queue. Stopping a queued request removes it; stopping a running request cancels the actual detached worker, which remains counted until it exits. Capacity then starts the next valid request instead of returning a permanent missing-image failure.
+- Markdown image interpretation strips angle delimiters, resolves Markdown escapes, and supplies the image alt label for collapsed and shortcut references while retaining syntax-tree source ranges.
+- Import replies must match the browser's current context. The sole exception remains an unsaved request whose reply and delivered snapshot both make the authorized first-save `N → N+1` transition.
+- Collapsed pending positions map as one point and replacement ranges use inward boundary association, so intervening typing is preserved. Browser file reading is capped before `arrayBuffer()` allocation and reports excess input visibly.

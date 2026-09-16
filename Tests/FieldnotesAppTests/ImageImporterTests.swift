@@ -2,7 +2,36 @@ import Foundation
 import Testing
 import FieldnotesCore
 import AppKit
+import WebKit
 @testable import FieldnotesApp
+
+private final class TestSchemeTask: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    private(set) var finished = false
+    private(set) var failed = false
+    init(_ url: URL) { request = URLRequest(url: url) }
+    func didReceive(_ response: URLResponse) {}
+    func didReceive(_ data: Data) {}
+    func didFinish() { finished = true }
+    func didFailWithError(_ error: any Error) { failed = true }
+}
+
+private final class ResourceReadTracker: @unchecked Sendable {
+    private let lock = NSLock(); private var released = false
+    private(set) var active = 0; private(set) var maximum = 0; private(set) var starts = 0
+    func read() throws -> Data {
+        lock.withLock { active += 1; starts += 1; maximum = max(maximum, active) }
+        defer { lock.withLock { active -= 1 } }
+        while !lock.withLock({ released }) {
+            if Task.isCancelled { throw CancellationError() }
+            usleep(1_000)
+        }
+        return Data(Self.png)
+    }
+    func release() { lock.withLock { released = true } }
+    func snapshot() -> (active: Int, maximum: Int, starts: Int) { lock.withLock { (active, maximum, starts) } }
+    private static let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+}
 
 @Suite struct ImageImporterTests {
     private static let pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -76,6 +105,28 @@ import AppKit
         #expect((try FileManager.default.contentsOfDirectory(atPath: outside.path)).isEmpty)
     }
 
+    @Test func authorizedRootAncestorSwapCannotRedirectReadOrWrite() throws {
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let trustedParent = fixture.appendingPathComponent("trusted"), trustedRoot = trustedParent.appendingPathComponent("root")
+        let outsideParent = fixture.appendingPathComponent("outside"), outsideRoot = outsideParent.appendingPathComponent("root")
+        try FileManager.default.createDirectory(at: trustedRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        try Data("INSIDE".utf8).write(to: trustedRoot.appendingPathComponent("a.png"))
+        try Data("OUTSIDE".utf8).write(to: outsideRoot.appendingPathComponent("a.png"))
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let authority = try SecureDirectoryAuthority(granting: trustedRoot)
+        try FileManager.default.moveItem(at: trustedParent, to: fixture.appendingPathComponent("trusted-old"))
+        try FileManager.default.createSymbolicLink(at: trustedParent, withDestinationURL: outsideParent)
+
+        #expect(throws: (any Error).self) {
+            try SecureFileIO.read(relativeComponents: ["a.png"], authority: authority, maximumBytes: 50)
+        }
+        #expect(throws: (any Error).self) {
+            try SecureFileIO.writeUnique(Data("new".utf8), suggestedName: "b.png", directoryName: "images", authority: authority)
+        }
+        #expect(!FileManager.default.fileExists(atPath: outsideRoot.appendingPathComponent("images/b.png").path))
+    }
+
     @Test @MainActor func resourceResolverRejectsTraversalStaleGenerationAndUnsupportedScheme() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -135,6 +186,30 @@ import AppKit
         let svg = try resolver.load(URL(string: "fieldnotes-resource://1/resource?path=vector.svg")!)
         #expect(svg.mimeType == "image/svg+xml")
         #expect(String(decoding: svg.data, as: UTF8.self).contains("<svg"))
+    }
+
+    @Test @MainActor func resourceHandlerQueuesPastWorkerLimitAndCancellationFreesCapacity() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(base64Encoded: Self.pngBase64)?.write(to: root.appendingPathComponent("a.png"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tracker = ResourceReadTracker()
+        let handler = ResourceSchemeHandler(resolver: ResourceResolver { ResourceScope(generation: 1, allowedRoot: root) }) { _ in try tracker.read() }
+        let url = try #require(URL(string: "fieldnotes-resource://1/resource?path=a.png"))
+        let tasks = (0..<10).map { _ in TestSchemeTask(url) }
+        let webView = WKWebView()
+        tasks.forEach { handler.webView(webView, start: $0) }
+        while tracker.snapshot().0 < 8 { await Task.yield() }
+        #expect(tracker.snapshot().maximum == 8)
+        #expect(tracker.snapshot().starts == 8)
+
+        handler.webView(webView, stop: tasks[0])
+        while tracker.snapshot().starts < 9 { await Task.yield() }
+        #expect(tracker.snapshot().maximum == 8)
+        tracker.release()
+        while tasks.dropFirst().contains(where: { !$0.finished && !$0.failed }) { await Task.yield() }
+        #expect(tasks.dropFirst().allSatisfy { $0.finished })
+        #expect(tasks.allSatisfy { !$0.failed })
     }
 
     @Test @MainActor func sessionScopesResourcesToActiveDocumentPolicyAndConfigurationRegistersOnlyCustomScheme() throws {

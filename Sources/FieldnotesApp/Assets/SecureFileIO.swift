@@ -8,6 +8,23 @@ enum SecureFileError: Error, Equatable {
     case unavailable
 }
 
+struct SecureDirectoryAuthority: Sendable {
+    let canonicalPath: String
+    let displayURL: URL
+
+    init(granting url: URL) throws {
+        let descriptor = url.path.withCString { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC) }
+        guard descriptor >= 0 else { throw SecureFileError.unsafePath }
+        defer { close(descriptor) }
+        var status = stat(), buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard fstat(descriptor, &status) == 0, (status.st_mode & S_IFMT) == S_IFDIR,
+              fcntl(descriptor, F_GETPATH, &buffer) == 0 else { throw SecureFileError.unsafePath }
+        let end = buffer.firstIndex(of: 0) ?? buffer.endIndex
+        canonicalPath = String(decoding: buffer[..<end].map(UInt8.init(bitPattern:)), as: UTF8.self)
+        displayURL = url.standardizedFileURL
+    }
+}
+
 enum SecureFileIO {
     static func read(_ url: URL, maximumBytes: Int) throws -> Data {
         let descriptor = try openPath(try canonicalExistingPath(url), finalFlags: O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
@@ -16,8 +33,12 @@ enum SecureFileIO {
     }
 
     static func read(relativeComponents: [String], authorizedRoot: URL, maximumBytes: Int) throws -> Data {
+        try read(relativeComponents: relativeComponents, authority: SecureDirectoryAuthority(granting: authorizedRoot), maximumBytes: maximumBytes)
+    }
+
+    static func read(relativeComponents: [String], authority: SecureDirectoryAuthority, maximumBytes: Int) throws -> Data {
         guard !relativeComponents.isEmpty, !relativeComponents.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { throw SecureFileError.unsafePath }
-        let root = try openPath(try canonicalExistingPath(authorizedRoot), finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let root = try openPath(authority.canonicalPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         var descriptor = root
         for (index, component) in relativeComponents.enumerated() {
             let flags = index == relativeComponents.count - 1 ? O_RDONLY | O_NOFOLLOW | O_CLOEXEC : O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
@@ -49,8 +70,11 @@ enum SecureFileIO {
     }
 
     static func writeUnique(_ data: Data, suggestedName: String, directoryName: String, authorizedRoot: URL) throws -> URL {
-        let canonicalRootPath = try canonicalExistingPath(authorizedRoot)
-        let root = try openPath(canonicalRootPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        try writeUnique(data, suggestedName: suggestedName, directoryName: directoryName, authority: SecureDirectoryAuthority(granting: authorizedRoot))
+    }
+
+    static func writeUnique(_ data: Data, suggestedName: String, directoryName: String, authority: SecureDirectoryAuthority) throws -> URL {
+        let root = try openPath(authority.canonicalPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         defer { close(root) }
         let mkdirResult = directoryName.withCString { mkdirat(root, $0, 0o755) }
         guard mkdirResult == 0 || errno == EEXIST else { throw SecureFileError.unavailable }
@@ -82,7 +106,7 @@ enum SecureFileIO {
                 }
                 guard fsync(descriptor) == 0 else { throw SecureFileError.unavailable }
                 close(descriptor)
-                return authorizedRoot.standardizedFileURL.appendingPathComponent(directoryName).appendingPathComponent(name)
+                return authority.displayURL.appendingPathComponent(directoryName).appendingPathComponent(name)
             } catch {
                 close(descriptor)
                 _ = name.withCString { unlinkat(directory, $0, 0) }
