@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { parse } from "yaml";
+const root = new URL("../", import.meta.url);
+const env = { ...process.env };
+for (const name of ["DEVELOPER_ID", "NOTARY_KEY", "NOTARY_KEY_ID", "NOTARY_ISSUER", "APP_VERSION"]) delete env[name];
+const result = spawnSync("scripts/sign-and-package.sh", [], { cwd: root, env, encoding: "utf8" });
+assert.equal(result.status, 1);
+assert.match(result.stderr, /Required release credential\/value missing: DEVELOPER_ID/);
+const release = parse(readFileSync(new URL(".github/workflows/release-app.yml", root), "utf8"));
+assert.deepEqual(release.on.push.tags, ["v*"]);
+assert.equal(release.jobs.release.needs, "verify");
+const script = readFileSync(new URL("scripts/sign-and-package.sh", root), "utf8");
+assert.doesNotMatch(script, /--deep/);
+const stapleValidation = script.indexOf('stapler validate');
+const checksum = script.indexOf('shasum -a 256');
+assert.ok(stapleValidation >= 0, 'staple validation must exist');
+assert.ok(checksum >= 0, 'final artifact checksum must exist');
+assert.ok(stapleValidation < checksum);
+const job = release.jobs.release;
+const secretNames = ["DEVELOPER_ID", "SIGNING_CERTIFICATE", "SIGNING_PASSWORD", "NOTARY_PRIVATE_KEY", "NOTARY_KEY_ID", "NOTARY_ISSUER", "TAP_TOKEN"];
+for (const key of secretNames) assert.equal(job.env[key], undefined, `${key} must not be job-scoped`);
+assert.equal(job.steps.find(step => step.uses?.startsWith("actions/checkout@"))?.with?.["persist-credentials"], false);
+const byName = name => job.steps.find(step => step.name === name);
+assert.deepEqual(Object.keys(byName("Require all release credentials and valid tag").env).sort(), [...secretNames].sort());
+assert.deepEqual(Object.keys(byName("Import temporary signing credentials").env).sort(), ["SIGNING_CERTIFICATE", "SIGNING_PASSWORD", "NOTARY_PRIVATE_KEY"].sort());
+assert.deepEqual(Object.keys(job.steps.find(step => step.run === "scripts/sign-and-package.sh").env).sort(), ["DEVELOPER_ID", "NOTARY_KEY_ID", "NOTARY_ISSUER"].sort());
+assert.ok(byName("Update tap after release exists").env.TAP_TOKEN);
+for (const step of job.steps.filter(step => /npm |bundle-app/.test(step.run ?? ""))) {
+  assert.equal(step.env, undefined, 'dependency and build steps receive no release credentials');
+}
+const entitlement = readFileSync(new URL("packaging/Fieldnotes.entitlements", root), "utf8");
+assert.doesNotMatch(entitlement, /get-task-allow|disable-library-validation|allow-jit|allow-unsigned-executable-memory/);
+console.log("Release fail-closed and artifact-order checks passed");

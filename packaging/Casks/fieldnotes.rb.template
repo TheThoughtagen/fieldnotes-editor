@@ -1,0 +1,13 @@
+cask "fieldnotes" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/TheThoughtagen/fieldnotes-editor/releases/download/v#{version}/FIELDNOTES-#{version}.dmg"
+  name "FIELDNOTES"
+  desc "Local Markdown editor with Focus, Source, and Preview modes"
+  homepage "https://github.com/TheThoughtagen/fieldnotes-editor"
+
+  depends_on macos: :sonoma
+  app "FIELDNOTES.app"
+  binary "#{appdir}/FIELDNOTES.app/Contents/Resources/bin/fieldnotes", target: "fieldnotes"
+end

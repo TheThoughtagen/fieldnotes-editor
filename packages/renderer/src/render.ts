@@ -29,7 +29,7 @@ export async function renderDocument(source: string, options: RenderOptions = {}
     ...frontmatter.diagnostics,
     ...(options.frontmatterSchema === undefined
       ? []
-      : validateFrontmatter(frontmatter.data, options.frontmatterSchema))
+      : await (options.validateFrontmatter ?? validateFrontmatter)(frontmatter.data, options.frontmatterSchema))
   ];
   const wordsPerMinute = options.wordsPerMinute;
   const validWordsPerMinute = wordsPerMinute === undefined

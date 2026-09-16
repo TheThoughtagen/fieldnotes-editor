@@ -1,0 +1,10 @@
+[
+  "modes", "motions-basic", "motions-word", "motions-line", "motions-document", "motions-find", "motions-pairs", "motions-blocks", "motions-screen", "motions-scroll",
+  "operator-delete", "operator-change", "operator-yank", "operator-counts", "operator-double",
+  "text-words", "text-sentences", "text-paragraphs", "text-pairs", "text-quotes", "text-tags",
+  "edits-insert", "edits-open", "edits-replace", "edits-delete", "edits-lines", "edits-repeat", "edits-undo", "edits-case", "edits-indent",
+  "registers", "put", "marks", "macros", "search-pattern", "search-repeat", "search-word",
+  "ex-substitute", "ex-substitute-all", "ex-set", "ex-nohlsearch", "native-write", "native-quit",
+  "visual-character", "visual-line", "visual-block",
+  "unsupported-shell", "unsupported-vimscript", "unsupported-map", "unsupported-file", "unsupported-buffer", "unsupported-window", "unsupported-force", "unsupported-write-path"
+]
