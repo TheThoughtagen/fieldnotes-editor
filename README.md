@@ -26,6 +26,8 @@ From Neovim, `:!fieldnotes %:p --mode preview` opens the current file. Lua can p
 
 Focus (`⌘1`), Source (`⌘2`), and Preview (`⌘3`) share one text buffer. `⌘\\` cycles them. `⌘P` opens workspace files, `⌘⇧P` opens commands, and `⌘K` searches the workspace. Native Save uses `⌘S`. Untouched UTF-8 files retain their exact bytes; editing does not regenerate Markdown from the preview.
 
+**Editor → Appearance** and **Settings → Appearance** offer System, Light, and Dark. The choice is saved app-wide and updates open windows immediately; System follows macOS appearance. Focus and Preview use a readable prose column, while Source uses compact monospace text. Changing appearance preserves the document, selection, undo history, Vim state, and scroll position.
+
 Vim starts enabled; `⌘⇧V` toggles it. See the executable [Vim compatibility matrix](docs/vim-compatibility.md) for the exact supported/adapted scope (54 families, 146 tokens), including native `:w`/`:q` and Markdown HTML-tag text objects. FIELDNOTES does not run Neovim, user Vimscript, plugins, shell commands, arbitrary mappings, buffers, splits, or tabs. Toggling presentation preserves Vim state; toggling Vim itself resets its adapter-local mode.
 
 ## Workspaces, schemas, and images

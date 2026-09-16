@@ -7,7 +7,7 @@ struct FieldnotesApplication: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            AppearanceSettings(preference: .shared)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -35,6 +35,15 @@ struct FieldnotesApplication: App {
                 editorButton("Preview", .preview, key: "3")
                 editorButton("Cycle Mode", .cycleMode, key: "\\")
                 Divider()
+                Menu("Appearance") {
+                    ForEach(EditorAppearance.allCases) { appearance in
+                        Toggle(appearance.title, isOn: Binding(
+                            get: { AppearancePreference.shared.selection == appearance },
+                            set: { selected in if selected { AppearancePreference.shared.selection = appearance } }
+                        ))
+                    }
+                }
+                Divider()
                 editorButton("Toggle Vim", .toggleVim, key: "v", modifiers: [.command, .shift])
                 Button("Toggle Remote Media") { activeSession()?.toggleRemoteImages() }
             }
@@ -61,6 +70,7 @@ final class DocumentApplicationDelegate: NSObject, NSApplicationDelegate {
     private lazy var requests = OpenRequestQueue { [weak self] request in self?.router.route(request) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppearancePreference.shared.apply()
         requests.applicationDidFinishLaunching()
         #if FIELDNOTES_INTEGRATION
         IntegrationControl.start()

@@ -28,7 +28,7 @@ test("Focus renders a bounded heading hierarchy for ATX and Setext; Source resto
     expect(size(line(root, "Setext one"))).toBe(sizes[0]);
     expect(size(line(root, "Setext two"))).toBe(sizes[1]);
     editor.setMode("source");
-    [...headings, "Setext one", "Setext two"].forEach(text => expect(size(line(root, text))).toBe(body));
+    [...headings, "Setext one", "Setext two"].forEach(text => expect(size(line(root, text))).toBe(size(line(root, "Body text"))));
     editor.setMode("focus");
     expect(size(line(root, "# One"))).toBe(sizes[0]);
   } finally { editor.destroy(); }

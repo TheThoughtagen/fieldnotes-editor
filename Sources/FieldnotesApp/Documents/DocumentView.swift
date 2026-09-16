@@ -34,9 +34,11 @@ private struct StatusBar: View {
             Spacer()
             Text(state.conflict != nil ? "External conflict" : state.hasUnsavedText ? "Edited" : "Saved")
         }
-        .font(.caption.monospaced())
+        .font(.system(size: 11).monospacedDigit())
+        .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: 30)
+        .background(.bar)
         .accessibilityElement(children: .combine)
     }
 }

@@ -2,7 +2,7 @@ import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } 
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { bracketMatching, defaultHighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { bracketMatching, defaultHighlightStyle, HighlightStyle, indentOnInput, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { lintKeymap } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
@@ -95,15 +95,29 @@ function focusDecorations(view: EditorView, frontmatterEnd: number | undefined):
   if (frontmatterEnd !== undefined) {
     ranges.push(Decoration.mark({ class: cursor <= frontmatterEnd ? "fn-syntax-active fn-frontmatter" : "fn-syntax-muted fn-frontmatter" }).range(0, frontmatterEnd));
   }
+  if (frontmatterEnd !== undefined) {
+    for (let number = 1; number <= view.state.doc.lineAt(frontmatterEnd).number; number++) {
+      ranges.push(Decoration.line({ class: "fn-frontmatter-line" }).range(view.state.doc.line(number).from));
+    }
+  }
   for (const visible of view.visibleRanges) syntaxTree(view.state).iterate({
     from: visible.from, to: visible.to,
     enter(node) {
+      if (frontmatterEnd !== undefined && node.from < frontmatterEnd && node.to <= frontmatterEnd) return false;
       if (/Mark$|Frontmatter|YAML/i.test(node.name)) {
         const parent = node.node.parent;
         const active = cursor >= (parent?.from ?? node.from) && cursor <= (parent?.to ?? node.to);
         ranges.push(Decoration.mark({ class: active ? "fn-syntax-active" : "fn-syntax-muted" }).range(node.from, node.to));
       }
-      if (/^(ATXHeading|SetextHeading|FencedCode|Blockquote)/.test(node.name)) {
+      if (/^(Emphasis|StrongEmphasis|InlineCode|Link|Strikethrough)$/.test(node.name)) {
+        ranges.push(Decoration.mark({ class: `fn-${node.name.toLowerCase()}` }).range(node.from, node.to));
+      }
+      if (/^(FencedCode|Blockquote)$/.test(node.name)) {
+        for (let number = view.state.doc.lineAt(node.from).number; number <= view.state.doc.lineAt(node.to).number; number++) {
+          ranges.push(Decoration.line({ class: `fn-${node.name.toLowerCase()}` }).range(view.state.doc.line(number).from));
+        }
+      }
+      if (/^(ATXHeading|SetextHeading)/.test(node.name)) {
         ranges.push(Decoration.line({ class: `fn-${node.name.toLowerCase()}` }).range(view.state.doc.lineAt(node.from).from));
       }
     },
@@ -123,6 +137,16 @@ const focusPlugin = ViewPlugin.fromClass(class {
   }
 }, { decorations: value => value.decorations });
 const focusExtension: Extension = [focusPlugin, EditorView.editorAttributes.of({ class: "fieldnotes-focus" })];
+const syntaxColors: Record<string, string> = {
+  "#404740": "muted", "#708": "purple", "#219": "purple", "#164": "green",
+  "#a11": "red", "#e40": "red", "#00f": "accent", "#30a": "purple",
+  "#085": "green", "#167": "teal", "#256": "teal", "#00c": "accent",
+  "#940": "amber", "#f00": "red",
+};
+const adaptiveHighlightStyle = HighlightStyle.define(defaultHighlightStyle.specs.map(spec => ({
+  ...spec, ...(spec.fontWeight === "bold" && spec.textDecoration === "underline" ? { textDecoration: "none" } : {}),
+  ...(typeof spec.color === "string" && syntaxColors[spec.color] ? { color: `var(--fn-${syntaxColors[spec.color]})` } : {}),
+})));
 const sourceExtension: Extension = EditorView.editorAttributes.of({ class: "fieldnotes-source" });
 const countWords = (text: string): number => {
   const trimmed = text.trim();
@@ -160,7 +184,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   const state = EditorState.create({ doc: initialDocument, extensions: [
     EditorState.allowMultipleSelections.of(true),
     vimMode.of(vim()), lineNumbers(), highlightSpecialChars(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(), highlightActiveLine(), highlightSelectionMatches(),
-    markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(defaultHighlightStyle, { fallback: true }), presentation.of([focusExtension, focusImages(() => resourceGeneration, () => remoteImages)]),
+    markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(adaptiveHighlightStyle, { fallback: true }), presentation.of([focusExtension, focusImages(() => resourceGeneration, () => remoteImages)]),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, ...lintKeymap, indentWithTab]), imageInputs(async request => {
       const imported = await bridge.importImage(request);
       if (imported?.diagnostic) {
