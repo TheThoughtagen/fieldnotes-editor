@@ -140,9 +140,14 @@ final class DocumentState {
         return true
     }
 
-    /// Map a single changed span in UTF-16 coordinates, retaining positions in common text.
+    /// CodeMirror uses LF-normalized UTF-16 offsets even when native source retains CRLF/CR.
+    private func logicalText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    /// Map a single changed span in logical UTF-16 coordinates, retaining common text.
     private func mapped(_ selection: EditorSelection, from old: String, to new: String) -> EditorSelection {
-        let before = Array(old.utf16), after = Array(new.utf16)
+        let before = Array(logicalText(old).utf16), after = Array(logicalText(new).utf16)
         var prefix = 0
         while prefix < min(before.count, after.count), before[prefix] == after[prefix] { prefix += 1 }
         var suffix = 0
@@ -162,7 +167,7 @@ final class DocumentState {
     }
 
     private func clamped(_ selection: EditorSelection, to text: String) -> EditorSelection {
-        let upperBound = text.utf16.count
+        let upperBound = logicalText(text).utf16.count
         return EditorSelection(
             anchor: min(max(selection.anchor, 0), upperBound),
             head: min(max(selection.head, 0), upperBound)

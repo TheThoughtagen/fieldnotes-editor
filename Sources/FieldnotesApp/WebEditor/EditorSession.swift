@@ -393,7 +393,7 @@ private struct ImportedImageResult: Sendable {
             } else { throw ResourceError.malformedRequest }
         }
         let relative = relativePath(from: documentDirectory, to: destination)
-        let escapedAlt = altText.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "]", with: "\\]")
+        let escapedAlt = altText.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
         let diagnostic = payload.linkInPlace == true && context.localAssetPolicy == .documentDirectory
             ? "Linked image remains in place; publication requires assets inside the post directory." : nil
         return ImportedImageResult(path: relative, altText: escapedAlt, diagnostic: diagnostic)

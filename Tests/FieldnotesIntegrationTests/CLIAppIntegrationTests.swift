@@ -3,6 +3,45 @@ import Testing
 
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["FIELDNOTES_INTEGRATION_APP"] != nil))
 struct CLIAppIntegrationTests {
+    @Test func logicalSelectionsAndLiteralImageDescriptionsCrossNativeBrowserBoundary() async throws {
+        let app = try AppHarness()
+        defer { app.stop() }
+        let file = app.root.appendingPathComponent("newlines.md")
+        try Data("a\nb\nc".utf8).write(to: file)
+        try app.cli([file.path, "--mode", "source"])
+        _ = try await app.until { $0["text"] as? String == "a\nb\nc" }
+        let variants = ["a\nb\nc", "a\r\nb\r\nc", "a\rb\r\nc", "a\r\nb\nc"]
+        for before in variants {
+            for after in variants {
+                for selection in [[5, 5], [3, 3], [5, 2]] {
+                    try app.externalWrite(before, to: file)
+                    _ = try await app.until { $0["nativeText"] as? String == before && $0["text"] as? String == "a\nb\nc" }
+                    _ = try await app.command(["action": "select", "anchor": selection[0], "head": selection[1]])
+                    _ = try await app.until { $0["nativeSelection"] as? [Int] == selection }
+                    let external = "z" + after.dropFirst()
+                    try app.externalWrite(external, to: file)
+                    let state = try await app.until { $0["nativeText"] as? String == external && $0["text"] as? String == "z\nb\nc" }
+                    #expect(state["anchor"] as? Int == selection[0])
+                    #expect(state["position"] as? Int == selection[1])
+                    _ = try await app.command(["action": "save"])
+                    #expect(try Data(contentsOf: file) == Data(external.utf8))
+                }
+            }
+        }
+        for literal in [#"Pump [A]"#, #"[open"#, #"close]"#, #"path\[A]\end"#, #"[[nested]] \\"#] {
+            _ = try await app.command(["action": "replace", "text": "before\n"])
+            _ = try await app.until { $0["nativeText"] as? String == "before\n" }
+            _ = try await app.command(["action": "select", "anchor": 7, "head": 7])
+            _ = try await app.command(["action": "pasteImage", "alt": literal])
+            _ = try await app.until { ($0["nativeText"] as? String)?.contains("![") == true }
+            _ = try await app.command(["action": "select", "anchor": 0, "head": 0])
+            _ = try await app.command(["action": "focus"])
+            _ = try await app.until { $0["focusAlts"] as? [String] == [literal] }
+            _ = try await app.command(["action": "preview"])
+            _ = try await app.until { $0["previewAlts"] as? [String] == [literal] && $0["imageLoaded"] as? Bool == true }
+        }
+    }
+
     @Test func cliOpensEditsSavesAndReusesCanonicalDocument() async throws {
         let app = try AppHarness()
         defer { app.stop() }

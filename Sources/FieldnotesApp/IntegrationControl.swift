@@ -63,16 +63,19 @@ enum IntegrationControl {
                 firstSaveResult = document.fileURL?.path ?? url.path
                 return document.fileURL ?? url
             }
+        case "focus": controller.session.sendCommand?(.focus)
+        case "select":
+            _ = try await web.callAsyncJavaScript("const e = document.querySelector('#editor').fieldnotesEditor; e.view.dispatch({selection:{anchor,head}})", arguments: ["anchor": request["anchor"] as? Int ?? 0, "head": request["head"] as? Int ?? 0], in: nil, contentWorld: .page)
         case "preview": controller.session.sendCommand?(.preview)
         case "pasteImage":
             _ = try await web.callAsyncJavaScript("""
                 const e = document.querySelector('#editor').fieldnotesEditor;
-                const prompt = window.prompt; window.prompt = () => 'Pixel';
+                const prompt = window.prompt; window.prompt = () => alt;
                 const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='), c => c.charCodeAt(0));
                 const transfer = new DataTransfer(); transfer.items.add(new File([bytes], 'pixel.png', {type:'image/png'}));
                 e.view.contentDOM.dispatchEvent(new ClipboardEvent('paste', {bubbles:true,cancelable:true,clipboardData:transfer}));
                 window.prompt = prompt;
-                """, arguments: [:], in: nil, contentWorld: .page)
+                """, arguments: ["alt": request["alt"] as? String ?? "Pixel"], in: nil, contentWorld: .page)
         case "replace":
             _ = try await web.callAsyncJavaScript("const e = document.querySelector('#editor').fieldnotesEditor; e.view.dispatch({changes:{from:0,to:e.view.state.doc.length,insert:text}})", arguments: ["text": request["text"] as? String ?? ""], in: nil, contentWorld: .page)
         case "save":
@@ -90,7 +93,7 @@ enum IntegrationControl {
             }
         default: break
         }
-        var result = (try? await web.callAsyncJavaScript("const e = document.querySelector('#editor').fieldnotesEditor; return {text:e.view.state.doc.toString(),mode:e.mode,position:e.view.state.selection.main.head,imageLoaded:[...document.querySelectorAll('article img')].some(i=>i.complete&&i.naturalWidth>0),imageURL:document.querySelector('article img')?.getAttribute('src')||'',mermaid:!!document.querySelector('article svg')}", arguments: [:], in: nil, contentWorld: .page)) as? [String: Any] ?? [:]
+        var result = (try? await web.callAsyncJavaScript("const e = document.querySelector('#editor').fieldnotesEditor; return {text:e.view.state.doc.toString(),mode:e.mode,position:e.view.state.selection.main.head,anchor:e.view.state.selection.main.anchor,focusAlts:[...document.querySelectorAll('.fn-image-widget img')].map(i=>i.alt),previewAlts:[...document.querySelectorAll('article img')].map(i=>i.alt),imageLoaded:[...document.querySelectorAll('article img')].some(i=>i.complete&&i.naturalWidth>0),imageURL:document.querySelector('article img')?.getAttribute('src')||'',mermaid:!!document.querySelector('article svg')}", arguments: [:], in: nil, contentWorld: .page)) as? [String: Any] ?? [:]
         result["page"] = (try? await web.evaluateJavaScript("({errors:window.integrationErrors,ready:document.readyState,diagnostics:document.querySelector('.fieldnotes-diagnostics')?.textContent,url:location.href})"))
         result["savePanel"] = controller.window?.attachedSheet is NSSavePanel
         result["firstSaveResult"] = firstSaveResult
@@ -98,6 +101,7 @@ enum IntegrationControl {
         result["automationMarker"] = "FIELDNOTES_INTEGRATION_CONTROL_V1"
         result["count"] = documents.count
         result["nativeText"] = document.state.editorText
+        result["nativeSelection"] = [document.state.selection.anchor, document.state.selection.head]
         result["schema"] = String(describing: controller.session.schemaStatus)
         if let conflict = document.state.conflict {
             result["conflict"] = [String(decoding: conflict.base, as: UTF8.self), conflict.ours, String(decoding: conflict.theirs ?? Data(), as: UTF8.self)]

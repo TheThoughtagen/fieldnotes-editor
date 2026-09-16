@@ -189,9 +189,9 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
       // Context replay acknowledges delivery; it does not restore an older cursor.
       if (snapshot.openContext && snapshot.openContext.generation <= contextGeneration && !inFlight) return true;
       if (inFlight?.edit.text === authoritativeText) {
+        if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
         inFlight = undefined;
         recoveryAttempted = false;
-        if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
         sendPending();
         flushStatus();
         return true;
@@ -201,17 +201,20 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     }
 
     if (hasSnapshot && inFlight && snapshot.revision === inFlight.expectedRevision && snapshot.text === inFlight.edit.text) {
+      if (!pending && view.state.doc.toString() === snapshot.text) applySelection(snapshot.selection);
       documentID = snapshot.documentID;
       revision = snapshot.revision;
       authoritativeText = snapshot.text;
       inFlight = undefined;
       recoveryAttempted = false;
-      if (!pending && view.state.doc.toString() === authoritativeText) applySelection(snapshot.selection);
       sendPending();
       flushStatus();
       return true;
     }
 
+    // Dispatch may reject a transaction. Commit authority and discard superseded intent
+    // only after CodeMirror has installed the snapshot, so native retries remain honest.
+    applyExactSnapshot(snapshot);
     documentID = snapshot.documentID;
     revision = snapshot.revision;
     authoritativeText = snapshot.text;
@@ -219,7 +222,6 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     pending = undefined;
     inFlight = undefined;
     recoveryAttempted = false;
-    applyExactSnapshot(snapshot);
     return true;
   };
   const applyContext = (snapshot: SnapshotReply): void => {
@@ -235,7 +237,11 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     void safePost({ kind: "contextApplied", documentID, baseRevision: revision, revision, payload: { generation: contextGeneration } }).catch(() => undefined);
   };
   const applySnapshot = (value: unknown): boolean => {
-    if (!applySnapshotContent(value)) return false;
+    try {
+      if (!applySnapshotContent(value)) return false;
+    } catch {
+      return false;
+    }
     applyContext(value as SnapshotReply);
     return true;
   };
@@ -288,14 +294,14 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
       }
       const localText = view.state.doc.toString();
       const localDiverges = Boolean(pending) || localText !== authoritativeText;
-      revision = snapshot.revision;
-      authoritativeText = snapshot.text;
-      hasSnapshot = true;
       if (!localDiverges) {
         applyExactSnapshot(snapshot);
       } else if (localText === snapshot.text) {
         if (!pending) applySelection(snapshot.selection);
       }
+      revision = snapshot.revision;
+      authoritativeText = snapshot.text;
+      hasSnapshot = true;
       if (!pending) recoveryAttempted = false;
       setBridgeState("ready");
       applyContext(snapshot);
@@ -532,7 +538,8 @@ function validSnapshot(value: unknown): SnapshotReply | undefined {
   if (!isRecord(value) || Object.keys(value).some(key => !["kind", "documentID", "revision", "text", "selection", "openContext"].includes(key))) return undefined;
   if (value.openContext !== undefined && !validContext(value.openContext)) return undefined;
   if (value.kind !== "snapshot" || typeof value.documentID !== "string" || !value.documentID || !isInteger(value.revision) || typeof value.text !== "string" || !validSelection(value.selection)) return undefined;
-  if (value.selection.anchor > value.text.length || value.selection.head > value.text.length) return undefined;
+  const logicalLength = value.text.replace(/\r\n?/g, "\n").length;
+  if (value.selection.anchor > logicalLength || value.selection.head > logicalLength) return undefined;
   return value as unknown as SnapshotReply;
 }
 

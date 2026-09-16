@@ -6,6 +6,34 @@ import Testing
 @Suite("Native Markdown documents", .serialized)
 @MainActor
 struct DocumentStateTests {
+    @Test("all native selection paths use logical LF UTF16 while source bytes stay exact")
+    func logicalNewlineSelections() throws {
+        let variants = ["a\nb\nc", "a\r\nb\r\nc", "a\rb\r\nc", "a\r\nb\nc"]
+        for before in variants {
+            for after in variants {
+                for selection in [EditorSelection(anchor: 5, head: 5), .init(anchor: 3, head: 3), .init(anchor: 5, head: 2)] {
+                    let state = try DocumentState(data: Data(before.utf8))
+                    state.updateSelection(selection)
+                    let external = "z" + after.dropFirst()
+                    try state.acceptExternal(Data(external.utf8))
+                    #expect(state.selection == selection)
+                    #expect(try state.serializedData() == Data(external.utf8))
+                    state.acceptEditorText(before, selection: .init(anchor: 99, head: 99), kind: .done)
+                    #expect(state.selection == .init(anchor: 5, head: 5))
+                    try state.acceptExternal(Data(after.utf8))
+                    let conflict = try #require(state.conflict)
+                    #expect(try state.resolveConflict(id: conflict.id, using: .disk))
+                    #expect(state.selection == .init(anchor: 5, head: 5))
+                    #expect(try state.serializedData() == Data(after.utf8))
+                }
+            }
+        }
+        let state = try DocumentState(data: Data("long source".utf8))
+        state.updateSelection(.init(anchor: 11, head: 8))
+        try state.replaceFromDisk(Data("a\r\nb\rc".utf8))
+        #expect(state.selection == .init(anchor: 5, head: 5))
+    }
+
     @Test("unchanged CRLF source round-trips byte-for-byte")
     func unchangedDocumentRoundTripsExactly() throws {
         let bytes = Data("---\r\ntitle: X\r\n---\r\nBody\r\n".utf8)

@@ -268,6 +268,21 @@ private final class ImmediateReadTracker: @unchecked Sendable {
         #expect(try Data(contentsOf: root.appendingPathComponent("posts/images/gateway-shot.png")) == Data(base64Encoded: Self.pngBase64))
     }
 
+    @Test @MainActor func importedAltEscapesLiteralBracketsAndBackslashes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = EditorSession(state: DocumentState(), documentID: "doc")
+        session.installOpenContext(.init(context: WorkspaceContext(workspace: root, document: root.appendingPathComponent("note.md"), schema: .none, localAssetPolicy: .workspace), requestedMode: nil, line: nil, column: nil))
+        for (literal, escaped) in [(#"Pump [A]"#, #"Pump \[A\]"#), (#"[open"#, #"\[open"#), (#"close]"#, #"close\]"#), (#"path\[A]\end"#, #"path\\\[A\]\\end"#)] {
+            let body: [String: Any] = ["kind": "imageImport", "documentID": "doc", "baseRevision": 0, "revision": 0,
+                "payload": ["filename": "pixel.png", "mimeType": "image/png", "dataBase64": Self.pngBase64, "altText": literal, "linkInPlace": false, "generation": 1]]
+            let reply = await session.prepareImageImportResponse(to: try EditorBridgeRequest.decode(body: body)).reply
+            #expect(reply["kind"] as? String == "imageImported")
+            #expect(reply["altText"] as? String == escaped)
+        }
+    }
+
     @Test @MainActor func unsavedSessionRequiresNativeSaveLocationBeforeImport() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = EditorSession(state: DocumentState(), documentID: "doc")

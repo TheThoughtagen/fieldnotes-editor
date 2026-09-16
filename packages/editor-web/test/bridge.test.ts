@@ -501,3 +501,45 @@ test.each(["text", "context"] as const)("pending validation is discarded when $0
     await vi.waitFor(() => expect(deliveries).toEqual([{ revision: change === "text" ? 2 : 1, generation: change === "context" ? 2 : 1, state: "valid", accepted: true }]));
   } finally { bridge.destroy(); view.destroy(); }
 });
+
+
+test("failed native dispatch retains revision and queued intent, then retries real content", async () => {
+  const first = deferred<NativeReply>();
+  const messages: Record<string, any>[] = [];
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, any>) {
+    messages.push(message);
+    if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "one", selection: { anchor: 0, head: 0 } });
+    if (message.kind === "transaction" && message.revision === 1) return first.promise;
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: message.revision });
+  } } } } });
+  const view = editor(), bridge = createNativeBridge(view); await bridge.ready;
+  view.dispatch({ changes: { from: 0, to: 3, insert: "two" } });
+  view.dispatch({ changes: { from: 0, to: 3, insert: "three" } });
+  const snapshot = { kind: "snapshot", documentID: "doc", revision: 3, text: "z\r\nb\r\nc", selection: { anchor: 5, head: 5 } };
+  const dispatch = vi.spyOn(view, "dispatch").mockImplementationOnce(() => { throw new Error("injected dispatch failure"); });
+  expect(window.fieldnotes.applyNativeSnapshot(snapshot)).toBe(false);
+  expect(view.state.doc.toString()).toBe("three");
+  dispatch.mockRestore();
+  first.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+  await vi.waitFor(() => expect(messages.some(m => m.kind === "transaction" && m.baseRevision === 1 && m.payload.text === "three")).toBe(true));
+  await vi.waitFor(() => expect(window.fieldnotes.applyNativeSnapshot(snapshot)).toBe(true));
+  expect(view.state.doc.toString()).toBe("z\nb\nc");
+  expect(view.state.selection.main.head).toBe(5);
+  expect(window.fieldnotes.applyNativeSnapshot(snapshot)).toBe(true);
+  expect(view.state.doc.toString()).toBe("z\nb\nc");
+  bridge.destroy(); view.destroy();
+});
+
+test("invalid logical selection never acknowledges raw CRLF length and same revision can recover", async () => {
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage() {
+    return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "a\nb\nc", selection: { anchor: 5, head: 5 } });
+  } } } } });
+  const view = editor(), bridge = createNativeBridge(view); await bridge.ready;
+  const snapshot = { kind: "snapshot", documentID: "doc", revision: 1, text: "z\r\nb\r\nc", selection: { anchor: 7, head: 7 } };
+  expect(window.fieldnotes.applyNativeSnapshot(snapshot)).toBe(false);
+  expect(view.state.doc.toString()).toBe("a\nb\nc");
+  expect(window.fieldnotes.applyNativeSnapshot({ ...snapshot, selection: { anchor: 5, head: 5 } })).toBe(true);
+  expect(view.state.doc.toString()).toBe("z\nb\nc");
+  expect(view.state.selection.main.head).toBe(5);
+  bridge.destroy(); view.destroy();
+});
