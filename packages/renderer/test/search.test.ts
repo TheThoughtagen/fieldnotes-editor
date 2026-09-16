@@ -10,3 +10,12 @@ test("search entries share Markdown parsing and retain exact original source lin
     { kind: "link", title: "Handbook", line: 11 },
   ]);
 });
+
+test("safe inline HTML links retain source positions and unsafe anchors are absent", () => {
+  const source = '---\ntitle: Notes\n---\nHandbook in prose.\n\n<a href="https://example.test/handbook"><strong>Handbook</strong></a>\n\n<a href="/handbook">Handbook</a>\n\n<a href="java&#x73;cript:alert(1)">Unsafe</a>\n\n<a id="section">Section</a>\n\n<a href="https://example.test/empty"></a>';
+  expect(documentSearchEntries(source)).toEqual([
+    { kind: "link", title: "Handbook", line: 6 },
+    { kind: "link", title: "Handbook", line: 8 },
+    { kind: "link", title: "https://example.test/empty", line: 14 },
+  ]);
+});

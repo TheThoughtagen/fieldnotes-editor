@@ -138,3 +138,18 @@ test("a displayed result cannot activate after its workspace generation changes"
   heading.click();
   expect(destinations).toEqual([]);
 });
+
+test("safe HTML link activation uses each anchor source line instead of matching prose", async () => {
+  const destinations: number[] = [];
+  setup({
+    source: () => 'Handbook in prose.\n\n<a href="https://example.test/handbook">Handbook</a>\n\n<a href="/handbook"><em>Handbook</em></a>\n\n<a href="javascript:alert(1)">Unsafe</a>',
+    searchFiles: async () => [], navigate: line => destinations.push(line),
+  });
+  for (let index = 0; index < 2; index++) {
+    palette!.open("all");
+    await vi.waitFor(() => expect([...document.querySelectorAll("[role=option]")].filter(item => item.textContent === "Handbook")).toHaveLength(2));
+    expect(document.querySelector("[role=listbox]")?.textContent).not.toContain("Unsafe");
+    [...document.querySelectorAll<HTMLElement>("[role=option]")].filter(item => item.textContent === "Handbook")[index]!.click();
+  }
+  expect(destinations).toEqual([3, 5]);
+});
