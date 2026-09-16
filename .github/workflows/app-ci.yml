@@ -27,9 +27,14 @@ jobs:
       - run: scripts/bundle-app.sh release
       - run: scripts/sign-and-package.sh --verify-unsigned
       - run: git diff --check
-      - run: ditto -c -k --sequesterRsrc --keepParent build/FIELDNOTES.app build/FIELDNOTES-unsigned-universal.zip
+      - name: Package unsigned preview
+        run: |
+          export APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/FIELDNOTES.app/Contents/Info.plist)
+          scripts/package-unsigned-preview.sh
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: FIELDNOTES-unsigned-universal
-          path: build/FIELDNOTES-unsigned-universal.zip
+          name: FIELDNOTES-unsigned-preview-universal
+          path: |
+            build/FIELDNOTES-*-unsigned-preview-universal.dmg
+            build/FIELDNOTES-*-unsigned-preview-universal.sha256
           if-no-files-found: error

@@ -8,6 +8,13 @@ case "$configuration" in
 esac
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+app_version=${APP_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$repository_root/Sources/FieldnotesApp/Info.plist")}
+case "$app_version" in
+  *[!0-9.]*|'') echo 'Invalid APP_VERSION (expected X.Y.Z)' >&2; exit 1 ;;
+esac
+printf '%s\n' "$app_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || {
+  echo 'Invalid APP_VERSION (expected X.Y.Z)' >&2; exit 1
+}
 build_root="$repository_root/build"
 app_bundle="$build_root/FIELDNOTES.app"
 mkdir -p "$build_root"
@@ -73,6 +80,9 @@ else
 fi
 
 cp "$repository_root/Sources/FieldnotesApp/Info.plist" "$stage/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $app_version" "$stage/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $app_version" "$stage/Contents/Info.plist"
+cp "$repository_root/packaging/AppIcon.icns" "$stage/Contents/Resources/AppIcon.icns"
 cp -R "$repository_root/build/editor-web/." "$stage/Contents/Resources/editor-web/"
 cp "$repository_root/scripts/fieldnotes-launcher.sh" "$stage/Contents/Resources/bin/fieldnotes"
 chmod 755 \
@@ -85,6 +95,7 @@ test -x "$stage/Contents/MacOS/FIELDNOTESApp"
 test -x "$stage/Contents/MacOS/fieldnotes"
 test -x "$stage/Contents/Resources/bin/fieldnotes"
 test -f "$stage/Contents/Resources/editor-web/index.html"
+test -s "$stage/Contents/Resources/AppIcon.icns"
 
 if test "$configuration" = release; then
   codesign --force --sign - "$stage/Contents/MacOS/fieldnotes"

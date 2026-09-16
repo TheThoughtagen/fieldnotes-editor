@@ -17,6 +17,9 @@ verify_bundle() {
     fi
   done
   test -f "$app/Contents/Resources/editor-web/index.html"
+  test -s "$app/Contents/Resources/AppIcon.icns"
+  test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist")" = AppIcon
+  test "$(head -c 4 "$app/Contents/Resources/AppIcon.icns")" = icns
   test ! -e "$app/Contents/Resources/integration"
   "$app/Contents/Resources/bin/fieldnotes" --help
   codesign --verify --strict --verbose=2 "$app"
