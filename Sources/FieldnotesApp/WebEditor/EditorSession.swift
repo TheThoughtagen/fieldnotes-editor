@@ -43,14 +43,17 @@ struct EditorSessionResponse {
     private let defaults: UserDefaults
     var onContextChanged: (() -> Void)?
     private var workspaceIndex: WorkspaceIndex?
+    private var indexTask: Task<WorkspaceIndex, Never>?
+    private let indexBuilder: @Sendable (URL) -> WorkspaceIndex
     var onNativeAction: ((NativeEditorAction) -> Void)?
     var onOpenWorkspaceDocument: ((URL, Int?) -> Void)?
     var sendCommand: ((EditorCommand) -> Void)?
 
-    init(state: DocumentState, documentID: String = UUID().uuidString, defaults: UserDefaults = .standard) {
+    init(state: DocumentState, documentID: String = UUID().uuidString, defaults: UserDefaults = .standard, indexBuilder: @escaping @Sendable (URL) -> WorkspaceIndex = { WorkspaceIndex(root: $0) }) {
         self.state = state
         self.documentID = documentID
         self.defaults = defaults
+        self.indexBuilder = indexBuilder
     }
 
     func installOpenContext(_ context: EditorOpenContext) {
@@ -63,7 +66,10 @@ struct EditorSessionResponse {
         case .diagnostic: schemaStatus = .invalid
         }
         presentationMode = context.requestedMode?.rawValue ?? defaults.string(forKey: modeKey(context.context.workspace)) ?? "focus"
-        workspaceIndex = WorkspaceIndex(root: context.context.workspace)
+        indexTask?.cancel()
+        workspaceIndex = nil
+        let root = context.context.workspace, builder = indexBuilder
+        indexTask = Task.detached(priority: .utility) { builder(root) }
         onContextChanged?()
     }
 
@@ -135,17 +141,8 @@ struct EditorSessionResponse {
             contextAcknowledged = true
             return response(acknowledgement())
         case .workspaceSearch:
-            guard request.baseRevision == state.revision, request.revision == state.revision,
-                  request.payload.generation == contextGeneration,
-                  let query = request.payload.query, let workspaceIndex
-            else { return response(rejection()) }
-            return response([
-                "kind": "workspaceResults",
-                "documentID": documentID,
-                "revision": state.revision,
-                "generation": contextGeneration,
-                "results": workspaceIndex.search(query, includeContent: request.payload.includeContent ?? false).map { ["id": $0.id, "title": $0.title] },
-            ])
+            // Search replies await background indexing through prepareWorkspaceSearchResponse.
+            return response(rejection())
         case .workspaceOpen:
             guard request.baseRevision == state.revision, request.revision == state.revision,
                   request.payload.generation == contextGeneration,
@@ -154,6 +151,25 @@ struct EditorSessionResponse {
             else { return response(rejection()) }
             return response(acknowledgement(), deferredOpenURL: url, deferredOpenLine: workspaceIndex?.line(id: resultID))
         }
+    }
+
+    func prepareWorkspaceSearchResponse(to request: EditorBridgeRequest) async -> EditorSessionResponse {
+        guard request.kind == .workspaceSearch, request.documentID == documentID,
+              request.payload.generation == contextGeneration, let query = request.payload.query,
+              let indexTask else { return response(rejection()) }
+        let generation = contextGeneration
+        let index = await indexTask.value
+        guard generation == contextGeneration else { return response(rejection()) }
+        workspaceIndex = index
+        let includeContent = request.payload.includeContent ?? false
+        let results = await Task.detached(priority: .utility) { index.search(query, includeContent: includeContent) }.value
+        guard generation == contextGeneration, request.baseRevision == state.revision,
+              request.revision == state.revision else { return response(rejection()) }
+        return response([
+            "kind": "workspaceResults", "documentID": documentID,
+            "revision": state.revision, "generation": generation,
+            "results": results.map { ["id": $0.id, "title": $0.title] },
+        ])
     }
 
     func perform(_ action: NativeEditorAction) {

@@ -404,3 +404,54 @@ declare global {
     };
   }
 }
+
+const schemaContext = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace" as const, mode: null, line: null, column: null, diagnostics: [], schema: {} };
+function schemaHarness() {
+  const first = deferred<NativeReply>(), second = deferred<NativeReply>();
+  const deliveries: { revision: number; generation: number; state: string; accepted: boolean }[] = [];
+  let nativeRevision = 0;
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, any>) {
+    if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 0, head: 0 }, openContext: schemaContext });
+    if (message.kind === "transaction") return ++nativeRevision === 1 ? first.promise : second.promise;
+    if (message.kind === "schemaStatus") deliveries.push({ revision: message.revision, generation: message.payload.generation, state: message.payload.schemaState, accepted: message.revision === nativeRevision });
+    return Promise.resolve({ kind: "ack", documentID: "doc", revision: nativeRevision });
+  } } } } });
+  const view = editor("A"), bridge = createNativeBridge(view);
+  return { view, bridge, first, second, deliveries, revision: () => nativeRevision };
+}
+
+test("schema validation waits for its edit ACK and uses the accepted revision", async () => {
+  const { view, bridge, first, deliveries, revision } = schemaHarness();
+  try {
+    await bridge.ready; bridge.postSchemaState("valid");
+    await vi.waitFor(() => expect(deliveries).toHaveLength(1));
+    view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+    await vi.waitFor(() => expect(revision()).toBe(1));
+    bridge.postSchemaState("invalid");
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(deliveries).toEqual([{ revision: 0, generation: 1, state: "valid", accepted: true }]);
+    first.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+    await vi.waitFor(() => expect(deliveries.at(-1)).toEqual({ revision: 1, generation: 1, state: "invalid", accepted: true }));
+  } finally { bridge.destroy(); view.destroy(); }
+});
+
+test.each(["text", "context"] as const)("pending validation is discarded when $0 changes", async change => {
+  const { view, bridge, first, second, deliveries, revision } = schemaHarness();
+  try {
+    await bridge.ready;
+    view.dispatch({ changes: { from: 0, to: 1, insert: "B" } });
+    await vi.waitFor(() => expect(revision()).toBe(1));
+    bridge.postSchemaState("invalid");
+    if (change === "text") view.dispatch({ changes: { from: 0, to: 1, insert: "C" } });
+    else expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 0, text: "A", selection: { anchor: 0, head: 0 }, openContext: { ...schemaContext, generation: 2 } })).toBe(true);
+    first.resolve({ kind: "ack", documentID: "doc", revision: 1 });
+    if (change === "text") {
+      await vi.waitFor(() => expect(revision()).toBe(2));
+      second.resolve({ kind: "ack", documentID: "doc", revision: 2 });
+    }
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(deliveries).toEqual([]);
+    bridge.postSchemaState("valid");
+    await vi.waitFor(() => expect(deliveries).toEqual([{ revision: change === "text" ? 2 : 1, generation: change === "context" ? 2 : 1, state: "valid", accepted: true }]));
+  } finally { bridge.destroy(); view.destroy(); }
+});

@@ -28,6 +28,14 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
         }
         do {
             let request = try EditorBridgeRequest.validate(body: body, isMainFrame: isMainFrame)
+            if request.kind == .workspaceSearch {
+                Task { @MainActor [weak self, session] in
+                    let response = await session.prepareWorkspaceSearchResponse(to: request)
+                    guard self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); return }
+                    replyHandler(response.reply, nil)
+                }
+                return
+            }
             let response = session.prepareResponse(to: request)
             replyHandler(response.reply, nil)
             if let action = response.deferredAction {

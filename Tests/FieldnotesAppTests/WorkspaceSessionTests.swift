@@ -111,7 +111,128 @@ struct WorkspaceSessionTests {
         #expect(session.receive(request)["kind"] as? String == "rejected")
     }
 
+    @Test("non-Markdown directories consume the traversal budget")
+    func traversalBudget() throws {
+        let root = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var deep = root
+        for i in 0..<12 {
+            deep = deep.appendingPathComponent("level-\(i)")
+            try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+            try Data().write(to: deep.appendingPathComponent("noise.txt"))
+        }
+        try Data("## Outside budget".utf8).write(to: deep.appendingPathComponent("target.md"))
+        let index = WorkspaceIndex(root: root, maximumFiles: 2, maximumEntries: 5)
+        #expect(index.search("target").isEmpty)
+    }
+
+    @Test("one line cannot exceed the per-document content record budget")
+    func contentRecordBudget() throws {
+        let root = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let links = (0..<240).map { "[label\($0)](https://example.test)" }.joined(separator: " ")
+        try Data(links.utf8).write(to: root.appendingPathComponent("many.md"))
+        let index = WorkspaceIndex(root: root)
+        #expect(index.search("label199").count == 1)
+        #expect(index.search("label200").isEmpty)
+        #expect(index.search("label239").isEmpty)
+    }
+
+    @Test("Setext H2 and full collapsed shortcut reference links retain source lines")
+    func standardMarkdownSearch() throws {
+        let root = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = "Calibration\n-----------\n\n[Handbook][docs]\n[docs][]\n[docs]\n\n[docs]: https://example.test\n\n```md\nHidden\n------\n[Hidden][docs]\n```"
+        try Data(source.utf8).write(to: root.appendingPathComponent("other.md"))
+        let index = WorkspaceIndex(root: root)
+        let heading = try #require(index.search("Calibration").first)
+        #expect(index.line(id: heading.id) == 1)
+        let link = try #require(index.search("Handbook").first)
+        #expect(index.line(id: link.id) == 4)
+        #expect(index.search("docs").compactMap { index.line(id: $0.id) }.sorted() == [5, 6])
+        #expect(index.search("Hidden").isEmpty)
+    }
+
+    @Test("background indexing cannot install results from a superseded workspace")
+    func asynchronousIndexGeneration() async throws {
+        let root = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = root.appendingPathComponent("old"), current = root.appendingPathComponent("current")
+        for directory in [old, current] { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        try Data().write(to: old.appendingPathComponent("old.md"))
+        try Data().write(to: current.appendingPathComponent("current.md"))
+        let probe = IndexBuildProbe()
+        defer { probe.release.signal() }
+        let session = EditorSession(state: DocumentState(), documentID: "doc", indexBuilder: { probe.build($0) })
+        let oldContext = WorkspaceContext(workspace: old, document: nil, schema: .none, localAssetPolicy: .workspace)
+        session.installOpenContext(.init(context: oldContext, requestedMode: nil, line: nil, column: nil))
+        let oldRequest = try decode(#"{"kind":"workspaceSearch","documentID":"doc","baseRevision":0,"revision":0,"payload":{"query":"","generation":1}}"#)
+        let oldSearch = Task { (await session.prepareWorkspaceSearchResponse(to: oldRequest)).reply["kind"] as? String }
+        for _ in 0..<100 {
+            if probe.hasStarted { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(probe.hasStarted)
+        #expect(!probe.wasMainThread)
+        let newContext = WorkspaceContext(workspace: current, document: nil, schema: .none, localAssetPolicy: .workspace)
+        session.installOpenContext(.init(context: newContext, requestedMode: .preview, line: nil, column: nil))
+        #expect(session.presentationMode == "preview")
+        let newRequest = try decode(#"{"kind":"workspaceSearch","documentID":"doc","baseRevision":0,"revision":0,"payload":{"query":"","generation":2}}"#)
+        let first = await session.prepareWorkspaceSearchResponse(to: newRequest)
+        #expect((first.reply["results"] as? [[String: String]])?.map { $0["title"] } == ["current.md"])
+        probe.release.signal()
+        #expect(await oldSearch.value == "rejected")
+        let replay = await session.prepareWorkspaceSearchResponse(to: newRequest)
+        #expect((replay.reply["results"] as? [[String: String]])?.map { $0["title"] } == ["current.md"])
+    }
+
+    @Test("the WebKit handler returns workspace results after background indexing")
+    func asynchronousSearchHandler() async throws {
+        let root = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data().write(to: root.appendingPathComponent("note.md"))
+        let session = EditorSession(state: DocumentState(), documentID: "doc")
+        session.installOpenContext(.init(context: WorkspaceContext(workspace: root, document: nil, schema: .none, localAssetPolicy: .workspace), requestedMode: nil, line: nil, column: nil))
+        let handler = WeakEditorReplyHandler(session: session)
+        let body = try JSONSerialization.jsonObject(with: Data(#"{"kind":"workspaceSearch","documentID":"doc","baseRevision":0,"revision":0,"payload":{"query":"note","generation":1}}"#.utf8))
+        var events: [String] = []
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            handler.handle(body: body, isMainFrame: true) { value, error in
+                events.append("reply")
+                let reply = value as? [String: Any]
+                #expect(error == nil)
+                #expect(reply?["kind"] as? String == "workspaceResults")
+                #expect((reply?["results"] as? [[String: String]])?.first?["title"] == "note.md")
+                continuation.resume()
+            }
+            events.append("returned")
+        }
+        #expect(events == ["returned", "reply"])
+    }
+
+    private func fixtureDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("fieldnotes-review-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
     private func decode(_ source: String) throws -> EditorBridgeRequest {
         try EditorBridgeRequest.decode(body: JSONSerialization.jsonObject(with: Data(source.utf8)))
+    }
+}
+
+private final class IndexBuildProbe: @unchecked Sendable {
+    let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var mainThread = false
+    private var didStart = false
+    var hasStarted: Bool { lock.withLock { didStart } }
+    var wasMainThread: Bool { lock.withLock { mainThread } }
+    func build(_ root: URL) -> WorkspaceIndex {
+        if root.lastPathComponent == "old" {
+            lock.withLock { mainThread = Thread.isMainThread; didStart = true }
+            _ = release.wait(timeout: .now() + 2)
+        }
+        return WorkspaceIndex(root: root)
     }
 }

@@ -21,3 +21,26 @@ test("native schema, mode and position apply once and diagnostics remain visible
   expect(window.fieldnotes.applyNativeSnapshot(snapshot({ ...context, generation: 2, mode: "preview" }))).toBe(true);
   expect(editor.mode).toBe("preview");
 });
+
+test("a validation render from an old context cannot publish status into its replacement", async () => {
+  const requests: { required: unknown; finish: (invalid: boolean) => void }[] = [];
+  const statuses: { generation: number; schemaState: string }[] = [];
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { async postMessage(message: Record<string, any>) {
+    if (message.kind === "ready") return snapshot();
+    if (message.kind === "schemaStatus") statuses.push(message.payload);
+    return { kind: "ack", documentID: "doc", revision: 0 };
+  } } } } });
+  const root = document.createElement("main"); document.body.append(root);
+  editor = createEditor(root, { render: (_source, options) => new Promise(resolve => {
+    requests.push({ required: options?.frontmatterSchema?.required, finish: invalid => resolve({ html: "", normalizedHtml: "", toc: [], frontmatter: {}, diagnostics: invalid ? [{ code: "schema.required", message: "missing title", severity: "error" }] : [], assets: [], plainText: "", wordCount: 0, readingMinutes: 1 }) });
+  }) });
+  await vi.waitFor(() => expect(requests.some(request => Array.isArray(request.required) && request.required.length === 1)).toBe(true));
+  expect(window.fieldnotes.applyNativeSnapshot(snapshot({ ...context, generation: 2, schema: { type: "object", required: [] } }))).toBe(true);
+  await vi.waitFor(() => expect(requests.some(request => Array.isArray(request.required) && request.required.length === 0)).toBe(true));
+  requests.find(request => Array.isArray(request.required) && request.required.length === 1)!.finish(true);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(statuses).toEqual([]);
+  requests.find(request => Array.isArray(request.required) && request.required.length === 0)!.finish(false);
+  await vi.waitFor(() => expect(statuses).toHaveLength(1));
+  expect(statuses[0]?.generation).toBe(2);
+});

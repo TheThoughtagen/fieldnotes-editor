@@ -110,6 +110,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
   let destroyed = false;
   let statusTimer: number | undefined;
   let statusPending: EditorStatus | undefined;
+  let schemaPending: { state: "none" | "valid" | "invalid"; text: string; generation: number } | undefined;
   const readyGate = new Compartment();
 
   const setBridgeState = (state: BridgeState): void => {
@@ -125,7 +126,16 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
 
   const safePost = (message: unknown): Promise<unknown> => Promise.resolve().then(() => destroyed ? undefined : handler?.postMessage(message));
 
+  function flushSchemaState(): void {
+    if (!handler || destroyed || !documentID || inFlight || pending || bridgeState !== "ready" || !schemaPending) return;
+    const result = schemaPending;
+    schemaPending = undefined;
+    if (result.generation !== contextGeneration || result.text !== view.state.doc.toString() || result.text !== authoritativeText) return;
+    void safePost({ kind: "schemaStatus", documentID, baseRevision: revision, revision, payload: { generation: result.generation, schemaState: result.state } }).catch(() => undefined);
+  }
+
   function flushStatus(): void {
+    flushSchemaState();
     if (!handler || destroyed || !documentID || inFlight || pending || bridgeState !== "ready" || !statusPending) return;
     const status = statusPending;
     statusPending = undefined;
@@ -205,6 +215,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     if (!context || context.generation < contextGeneration) return;
     if (context.generation > contextGeneration) {
       statusPending = undefined;
+      schemaPending = undefined;
       contextGeneration = context.generation;
       onContext?.(context);
     }
@@ -420,13 +431,15 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
   const destroy = (): void => {
     destroyed = true;
     statusPending = undefined;
+    schemaPending = undefined;
     if (statusTimer !== undefined) window.clearTimeout(statusTimer);
     if (activeApply === applySnapshot) activeApply = () => false;
   };
 
   const postSchemaState = (schemaState: "none" | "valid" | "invalid"): void => {
     if (!handler || !contextGeneration || destroyed) return;
-    void safePost({ kind: "schemaStatus", documentID, baseRevision: revision, revision, payload: { generation: contextGeneration, schemaState } }).catch(() => undefined);
+    schemaPending = { state: schemaState, text: view.state.doc.toString(), generation: contextGeneration };
+    flushSchemaState();
   };
   const searchFiles = async (query: string, includeContent = false): Promise<{ id: string; title: string }[]> => {
     if (!contextGeneration || !(await waitUntilIdle())) return [];

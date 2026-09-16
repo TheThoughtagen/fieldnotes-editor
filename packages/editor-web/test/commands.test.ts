@@ -84,3 +84,57 @@ test("stale native generations are ignored and file selections return only opaqu
   expect(document.querySelector("[role=dialog]")).toBeNull();
   expect(openFile).not.toHaveBeenCalled();
 });
+
+test("heading activation uses source positions for prose collisions formatting and repeated labels", async () => {
+  const destinations: number[] = [];
+  setup({
+    source: () => "Calibration appears in prose.\n\n## Calibration\n\n## Use **safe** defaults\n\n## Calibration",
+    searchFiles: async () => [], navigate: line => destinations.push(line),
+  });
+  for (const [label, index, line] of [["Calibration", 0, 3], ["Use safe defaults", 0, 5], ["Calibration", 1, 7]] as const) {
+    palette!.open("all");
+    await vi.waitFor(() => expect([...document.querySelectorAll("[role=option]")].filter(item => item.textContent === label).length).toBeGreaterThan(index));
+    ([...document.querySelectorAll<HTMLElement>("[role=option]")].filter(item => item.textContent === label)[index])!.click();
+    expect(destinations.at(-1)).toBe(line);
+  }
+});
+
+test("links and tags keep their own YAML and Markdown occurrence positions", async () => {
+  const destinations: number[] = [];
+  setup({
+    source: () => "---\ntitle: Docs\ntags:\n  - Docs\n---\nDocs in prose.\n\n[Docs](https://example.test)\n\n[Docs][ref]\n\n[ref]: https://example.test",
+    searchFiles: async () => [], navigate: line => destinations.push(line),
+  });
+  for (let index = 0; index < 3; index++) {
+    palette!.open("all");
+    await vi.waitFor(() => expect([...document.querySelectorAll("[role=option]")].filter(item => item.textContent === "Docs")).toHaveLength(3));
+    [...document.querySelectorAll<HTMLElement>("[role=option]")].filter(item => item.textContent === "Docs")[index]!.click();
+  }
+  expect(destinations).toEqual([4, 8, 10]);
+});
+
+test("reopening a loading file palette cannot activate a prior command", async () => {
+  const commands: string[] = [];
+  setup({ searchFiles: () => new Promise(() => {}), runCommand: command => commands.push(command) });
+  palette!.open("commands");
+  let input = document.querySelector<HTMLInputElement>("[role=combobox]")!;
+  input.value = "Close window"; input.dispatchEvent(new InputEvent("input"));
+  await vi.waitFor(() => expect(document.querySelectorAll("[role=option]")).toHaveLength(1));
+  palette!.open("files");
+  input = document.querySelector<HTMLInputElement>("[role=combobox]")!;
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  expect(commands).toEqual([]);
+  expect(document.querySelector("[role=dialog]")).not.toBeNull();
+});
+
+test("a displayed result cannot activate after its workspace generation changes", async () => {
+  let generation = 1;
+  const destinations: number[] = [];
+  setup({ contextGeneration: () => generation, searchFiles: async () => [], navigate: line => destinations.push(line) });
+  palette!.open("all");
+  await vi.waitFor(() => expect([...document.querySelectorAll("[role=option]")].some(item => item.textContent === "Setup")).toBe(true));
+  const heading = [...document.querySelectorAll<HTMLElement>("[role=option]")].find(item => item.textContent === "Setup")!;
+  generation = 2;
+  heading.click();
+  expect(destinations).toEqual([]);
+});

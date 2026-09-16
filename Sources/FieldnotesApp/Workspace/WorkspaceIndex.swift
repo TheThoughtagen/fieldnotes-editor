@@ -1,19 +1,22 @@
 import Foundation
+import FieldnotesCore
 
 struct WorkspaceSearchResult: Equatable, Sendable {
     let id: String
     let title: String
 }
 
-final class WorkspaceIndex: @unchecked Sendable {
+struct WorkspaceIndex: Sendable {
     private let root: URL
     private let maximumFiles: Int
-    private struct Record { let url: URL; let title: String; let line: Int? }
+    private let maximumEntries: Int
+    private struct Record: Sendable { let url: URL; let title: String; let line: Int? }
     private var records: [String: Record] = [:]
 
-    init(root: URL, maximumFiles: Int = 2_000) {
+    init(root: URL, maximumFiles: Int = 2_000, maximumEntries: Int = 20_000) {
         self.root = root.resolvingSymlinksInPath().standardizedFileURL
         self.maximumFiles = min(max(maximumFiles, 1), 10_000)
+        self.maximumEntries = min(max(maximumEntries, 0), 100_000)
         rebuild()
     }
 
@@ -40,60 +43,35 @@ final class WorkspaceIndex: @unchecked Sendable {
 
     func line(id: String) -> Int? { records[id]?.line }
 
-    private func rebuild() {
+    private mutating func rebuild() {
         records.removeAll(keepingCapacity: true)
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey, .isHiddenKey]
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
+            options: [.skipsPackageDescendants],
             errorHandler: { _, _ in true }
         ) else { return }
-        var fileCount = 0
-        for case let url as URL in enumerator {
-            if fileCount >= maximumFiles { break }
-            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isSymbolicLink != true else {
+        var fileCount = 0, visitedEntries = 0
+        while visitedEntries < maximumEntries, fileCount < maximumFiles, !Task.isCancelled,
+              let url = enumerator.nextObject() as? URL {
+            visitedEntries += 1
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isSymbolicLink != true,
+                  values.isHidden != true, !url.lastPathComponent.hasPrefix(".") else {
                 if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { enumerator.skipDescendants() }
                 continue
             }
             guard values.isRegularFile == true, isRegularMarkdown(url) else { continue }
             fileCount += 1
             let canonical = url.standardizedFileURL
+            guard contains(canonical), canonical.resolvingSymlinksInPath() == canonical else { continue }
             let title = relativePath(canonical)
             records[UUID().uuidString] = Record(url: canonical, title: title, line: nil)
-            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 262_144,
-                  let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            var fenced = false, frontmatter = false, tags = false, contentCount = 0
-            for (offset, raw) in source.components(separatedBy: "\n").enumerated() {
-                if contentCount >= 200 { break }
-                let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                if offset == 0 && line == "---" { frontmatter = true; continue }
-                if frontmatter && line == "---" { frontmatter = false; tags = false; continue }
-                var labels: [String] = []
-                if frontmatter {
-                    if line.hasPrefix("tags:") {
-                        tags = true
-                        labels += line.dropFirst(5).trimmingCharacters(in: CharacterSet(charactersIn: " []")).components(separatedBy: ",")
-                    } else if tags && line.hasPrefix("- ") { labels.append(String(line.dropFirst(2))) }
-                    else if !line.isEmpty { tags = false }
-                } else {
-                    if line.hasPrefix("```") || line.hasPrefix("~~~") { fenced.toggle(); continue }
-                    if fenced { continue }
-                    if line.hasPrefix("## ") { labels.append(String(line.dropFirst(3))) }
-                    if line.hasPrefix("### ") { labels.append(String(line.dropFirst(4))) }
-                    let pattern = #"(?<!!)\[([^\]]+)\]\([^\)]+\)"#
-                    if let regex = try? NSRegularExpression(pattern: pattern) {
-                        for match in regex.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
-                            if let range = Range(match.range(at: 1), in: line) { labels.append(String(line[range])) }
-                        }
-                    }
-                }
-                for label in labels {
-                    let clean = label.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
-                    guard !clean.isEmpty else { continue }
-                    records[UUID().uuidString] = Record(url: canonical, title: title + " — " + clean, line: offset + 1)
-                    contentCount += 1
-                }
+            guard let data = try? BoundedFileReader.read(url, maximumBytes: 262_144),
+                  let source = String(data: data, encoding: .utf8) else { continue }
+            for entry in MarkdownSearchStructure.entries(source, limit: 200) {
+                if Task.isCancelled { return }
+                records[UUID().uuidString] = Record(url: canonical, title: title + " — " + entry.title, line: entry.line)
             }
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import FieldnotesCore
 
@@ -164,6 +165,25 @@ struct WorkspaceCoreTests {
     func bundledApplication() {
         #expect(CLIApplicationLocation.bundledApp(for: URL(fileURLWithPath: "/Applications/FIELDNOTES.app/Contents/MacOS/fieldnotes"))?.path == "/Applications/FIELDNOTES.app")
         #expect(CLIApplicationLocation.bundledApp(for: URL(fileURLWithPath: "/usr/local/bin/fieldnotes")) == nil)
+    }
+
+    @Test("configuration reads enforce the byte budget on the opened descriptor")
+    func boundedConfigurationRead() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = root.appendingPathComponent(".fieldnotes.json")
+        try Data(repeating: 32, count: 131_072).write(to: config)
+        let descriptor = Darwin.open(config.path, O_RDONLY)
+        #expect(descriptor >= 0)
+        defer { Darwin.close(descriptor) }
+        #expect(throws: (any Error).self) { try BoundedFileReader.read(fileDescriptor: descriptor, maximumBytes: 65_536) }
+        #expect(Darwin.lseek(descriptor, 0, SEEK_CUR) <= 65_537)
+        let file = root.appendingPathComponent("note.md")
+        try Data().write(to: file)
+        guard case .diagnostic = try WorkspaceResolver().resolve(input: file).schema else { Issue.record("oversized config must remain a diagnostic"); return }
+        try Data("{}".utf8).write(to: config)
+        #expect(try BoundedFileReader.read(config, maximumBytes: 2) == Data("{}".utf8))
+        #expect(throws: (any Error).self) { try BoundedFileReader.read(root, maximumBytes: 2) }
     }
 
     private func temporaryDirectory() throws -> URL {

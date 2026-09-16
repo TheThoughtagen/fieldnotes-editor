@@ -123,7 +123,7 @@ public struct WorkspaceResolver: Sendable {
             guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 1_048_576 else {
                 return .diagnostic("Schema is too large: \(url.path)")
             }
-            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            let data = try BoundedFileReader.read(url, maximumBytes: 1_048_576)
             guard data.count <= 1_048_576,
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return .diagnostic("Schema is not a bounded JSON object: \(url.path)") }
@@ -147,7 +147,7 @@ public struct WorkspaceResolver: Sendable {
 
     private func readConfig(at url: URL) throws -> FieldnotesConfig {
         guard isRegularFile(url),
-              let data = try? Data(contentsOf: url), data.count <= 65_536,
+              let data = try? BoundedFileReader.read(url, maximumBytes: 65_536),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw WorkspaceError.invalidConfig("must be a bounded JSON object") }
         let allowed: Set<String> = ["frontmatterSchema", "localAssetPolicy"]
