@@ -15,5 +15,5 @@ assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/);
 assert.match(policy, /connect-src 'none'/);
 assert.match(policy, /object-src 'none'/);
 assert.match(policy, /img-src 'self' data: fieldnotes-resource: https:/);
-assert.match(policy, /frame-src 'none'/);
+assert.match(policy, /frame-src https:\/\/www\.youtube-nocookie\.com\/embed\/ https:\/\/player\.vimeo\.com\/video\//);
 assert.doesNotMatch(policy, /http:/);

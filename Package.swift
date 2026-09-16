@@ -24,6 +24,7 @@ let package = Package(
             exclude: ["Info.plist"]
         ),
         .executableTarget(name: "FieldnotesCLI", dependencies: ["FieldnotesCore"]),
+        .testTarget(name: "FieldnotesIntegrationTests", dependencies: [.product(name: "Testing", package: "swift-testing")]),
         .testTarget(
             name: "FieldnotesAppTests",
             dependencies: [

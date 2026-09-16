@@ -17,7 +17,11 @@ func launch(_ url: URL) -> Bool {
         return NSWorkspace.shared.open(url)
     }
     let acceptance = LaunchAcceptance()
-    NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+    let configuration = NSWorkspace.OpenConfiguration()
+    #if FIELDNOTES_INTEGRATION
+    configuration.createsNewApplicationInstance = !NSWorkspace.shared.runningApplications.contains { $0.bundleURL?.resolvingSymlinksInPath() == app.resolvingSymlinksInPath() }
+    #endif
+    NSWorkspace.shared.open([url], withApplicationAt: app, configuration: configuration) { _, error in
         let accepted = error == nil
         Task { @MainActor in acceptance.accepted = accepted }
     }

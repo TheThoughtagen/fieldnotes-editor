@@ -129,8 +129,26 @@ private struct ImportedImageResult: Sendable {
     }
 
     func refreshDocumentLocation(_ url: URL) throws {
+        // An ordinary save must retain its explicitly opened schema and resource generation.
+        if url.resolvingSymlinksInPath().standardizedFileURL == currentDocumentURL { return }
         let context = try WorkspaceResolver().resolve(input: url)
         installOpenContext(.init(context: context, requestedMode: FieldnotesCore.PresentationMode(rawValue: presentationMode), line: nil, column: nil))
+    }
+
+    func prepareSchemaValidationResponse(to request: EditorBridgeRequest) async -> EditorSessionResponse {
+        guard request.documentID == documentID, request.revision == state.revision,
+              request.baseRevision == state.revision, request.payload.generation == contextGeneration,
+              case let .loaded(_, schema) = pendingOpenContext?.context.schema,
+              let scriptURL = Bundle.main.resourceURL?.appendingPathComponent("editor-web/schema-validator.js")
+        else { return response(rejection()) }
+        let text = state.editorText
+        let generation = contextGeneration
+        let revision = state.revision
+        let bytes = await Task.detached { NativeSchemaValidator.validate(source: text, schema: schema, scriptURL: scriptURL) }.value
+        guard generation == contextGeneration, revision == state.revision,
+              let diagnostics = try? JSONSerialization.jsonObject(with: bytes) as? [[String: Any]]
+        else { return response(rejection()) }
+        return response(["kind": "schemaValidated", "documentID": documentID, "revision": revision, "generation": generation, "diagnostics": diagnostics])
     }
 
     func receive(_ request: EditorBridgeRequest) -> [String: Any] {
@@ -196,6 +214,8 @@ private struct ImportedImageResult: Sendable {
             default: schemaStatus = .unavailable
             }
             return response(acknowledgement())
+        case .schemaValidate:
+            return response(rejection()) // Asynchronous validation is handled by the registration.
         case .contextApplied:
             guard request.payload.generation == contextGeneration else { return response(rejection()) }
             contextAcknowledged = true
@@ -315,7 +335,7 @@ private struct ImportedImageResult: Sendable {
     private func serialized(_ open: EditorOpenContext) -> [String: Any] {
         var diagnostics = open.context.diagnostics
         if case .diagnostic(let message) = open.context.schema { diagnostics.append(message) }
-        let lines = state.editorText.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = state.editorText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
         let requestedLine = open.line ?? 1
         let line = min(max(requestedLine, 1), max(lines.count, 1))
         let lineWasClamped = line != requestedLine
@@ -431,7 +451,7 @@ private struct ImportedImageResult: Sendable {
     }
 
     private func validStatusPosition(line: Int, column: Int) -> Bool {
-        let lines = state.editorText.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = state.editorText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
         guard line > 0, line <= lines.count else { return false }
         return column > 0 && column <= lines[line - 1].utf16.count + 1
     }

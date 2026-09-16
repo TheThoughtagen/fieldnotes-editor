@@ -1,3 +1,4 @@
+import type { RenderDiagnostic } from "@cruciblesoftware/fieldnotes-renderer";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 
@@ -65,6 +66,7 @@ export interface NativeBridge {
   searchFiles(query: string, includeContent?: boolean): Promise<{ id: string; title: string }[]>;
   openFile(id: string): Promise<void>;
   postStatus(status: EditorStatus): void;
+  validateSchema(): Promise<RenderDiagnostic[]>;
   postSchemaState(state: "none" | "valid" | "invalid"): void;
   requestAction(action: "save" | "quit"): Promise<boolean>;
   importImage(request: ImageImportRequest): Promise<ImageImportResult | undefined>;
@@ -140,7 +142,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     if (!handler || destroyed || !documentID || inFlight || pending || bridgeState !== "ready" || !schemaPending) return;
     const result = schemaPending;
     schemaPending = undefined;
-    if (result.generation !== contextGeneration || result.text !== view.state.doc.toString() || result.text !== authoritativeText) return;
+    if (result.generation !== contextGeneration || result.text !== view.state.doc.toString() || result.text !== authoritativeText.replace(/\r\n?/g, "\n")) return;
     void safePost({ kind: "schemaStatus", documentID, baseRevision: revision, revision, payload: { generation: result.generation, schemaState: result.state } }).catch(() => undefined);
   }
 
@@ -452,6 +454,17 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     schemaPending = { state: schemaState, text: view.state.doc.toString(), generation: contextGeneration };
     flushSchemaState();
   };
+  const validateSchema = async (): Promise<RenderDiagnostic[]> => {
+    // Let all CodeMirror update listeners enqueue the transaction before checking idle.
+    await Promise.resolve();
+    const generation = contextGeneration;
+    if (!handler || !generation || !(await waitUntilIdle())) throw new Error("Schema validation unavailable");
+    const validatedRevision = revision;
+    const reply = await safePost({ kind: "schemaValidate", documentID, baseRevision: revision, revision, payload: { generation } });
+    if (!isRecord(reply) || reply.kind !== "schemaValidated" || reply.documentID !== documentID || reply.revision !== validatedRevision || revision !== validatedRevision || reply.generation !== generation || contextGeneration !== generation || !Array.isArray(reply.diagnostics)) throw new Error("Stale schema validation");
+    if (!reply.diagnostics.every(item => isRecord(item) && typeof item.code === "string" && typeof item.message === "string" && item.severity === "error")) throw new Error("Invalid schema diagnostics");
+    return reply.diagnostics as RenderDiagnostic[];
+  };
   const searchFiles = async (query: string, includeContent = false): Promise<{ id: string; title: string }[]> => {
     if (!contextGeneration || !(await waitUntilIdle())) return [];
     const generation = contextGeneration;
@@ -481,7 +494,7 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     }
     return { path: reply.path, altText: reply.altText, ...(typeof reply.diagnostic === "string" ? { diagnostic: reply.diagnostic } : {}) };
   };
-  return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, importImage, postStatus, postSchemaState, requestAction, destroy };
+  return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, importImage, validateSchema, postStatus, postSchemaState, requestAction, destroy };
 }
 
 function transactionKind(update: ViewUpdate): PendingEdit["editKind"] {

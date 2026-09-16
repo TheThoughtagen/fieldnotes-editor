@@ -130,6 +130,7 @@ struct ExternalChangeTests {
             document.accommodatePresentedItemDeletion { continuation.resume(returning: $0) }
         }
         #expect(error == nil)
+        for _ in 0..<100 where document.state.conflict == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(document.state.editorText == "base")
         let review = ConflictReview(conflict: try #require(document.state.conflict))
         #expect(review.conflict.theirs == nil)

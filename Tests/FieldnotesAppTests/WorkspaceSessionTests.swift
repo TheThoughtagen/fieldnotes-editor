@@ -6,6 +6,31 @@ import Testing
 @Suite("Workspace editor session", .serialized)
 @MainActor
 struct WorkspaceSessionTests {
+    @Test("CRLF open positions use editor logical lines")
+    func crlfPosition() throws {
+        let root = FileManager.default.temporaryDirectory
+        let session = EditorSession(state: try DocumentState(data: Data("first\r\nsecond\r\n".utf8)))
+        session.installOpenContext(.init(context: .init(workspace: root, document: nil, schema: .none, localAssetPolicy: .workspace), requestedMode: .source, line: 2, column: 3))
+        let context = try #require(session.snapshot()["openContext"] as? [String: Any])
+        #expect(context["line"] as? Int == 2)
+        #expect(context["column"] as? Int == 3)
+    }
+
+    @Test("saving at current location preserves the explicitly selected schema")
+    func savePreservesExplicitSchema() throws {
+        let root = FileManager.default.temporaryDirectory
+        let file = root.appendingPathComponent("same-\(UUID()).md")
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let state = DocumentState()
+        let session = EditorSession(state: state)
+        session.installOpenContext(.init(context: .init(workspace: root, document: file, schema: .loaded(url: root.appendingPathComponent("explicit.json"), data: Data("{}".utf8)), localAssetPolicy: .workspace), requestedMode: .source, line: nil, column: nil))
+        let generation = session.contextGeneration
+        try session.refreshDocumentLocation(file)
+        #expect(session.contextGeneration == generation)
+        #expect(session.schemaStatus == .checking)
+    }
+
     @Test("open context survives delivery loss until generation acknowledgement")
     func oneShotContext() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("fieldnotes-context-\(UUID().uuidString)")

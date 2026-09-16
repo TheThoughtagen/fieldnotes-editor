@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node ../../scripts/build-schema-validator.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && vitest run && node ../../scripts/test-editor-security.mjs && node ../../scripts/test-offline-bundle.mjs"
   },

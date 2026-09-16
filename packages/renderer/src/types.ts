@@ -41,6 +41,7 @@ export type RenderOptions = {
   baseUrl?: string;
   allowRemoteImages?: boolean;
   frontmatterSchema?: JsonSchema;
+  validateFrontmatter?: (value: Record<string, unknown>, schema: JsonSchema) => RenderDiagnostic[] | Promise<RenderDiagnostic[]>;
   codeTheme?: string;
   wordsPerMinute?: number;
 };

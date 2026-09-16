@@ -176,6 +176,13 @@ struct WebEditorView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            if navigationAction.targetFrame?.isMainFrame == false, session.remoteImagesEnabled,
+               url.scheme == "https", url.port == nil, url.user == nil, url.password == nil,
+               (url.host == "www.youtube-nocookie.com" && url.path.hasPrefix("/embed/") ||
+                url.host == "player.vimeo.com" && url.path.hasPrefix("/video/")) {
+                decisionHandler(.allow)
+                return
+            }
             switch EditorNavigationPolicy.decide(
                 url: url,
                 editorRoot: editorRoot,

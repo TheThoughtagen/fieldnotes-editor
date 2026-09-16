@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { validateFrontmatter } from "@cruciblesoftware/fieldnotes-renderer";
 import { createEditor, type EditorController } from "../src/editor.js";
 let editor: EditorController | undefined;
 afterEach(() => { editor?.destroy(); delete (window as Window & { webkit?: unknown }).webkit; document.body.replaceChildren(); });
@@ -6,7 +7,7 @@ const context = { generation: 1, workspaceName: "notes", documentName: "note.md"
 function snapshot(openContext = context) { return { kind: "snapshot", documentID: "doc", revision: 0, text: "# First\nsecond", selection: { anchor: 0, head: 0 }, openContext }; }
 test("native schema, mode and position apply once and diagnostics remain visible while editing", async () => {
   const messages: Record<string, unknown>[] = [];
-  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { async postMessage(message: Record<string, unknown>) { messages.push(message); return message.kind === "ready" ? snapshot() : { kind: "ack", documentID: "doc", revision: 0 }; } } } } });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { async postMessage(message: Record<string, unknown>) { messages.push(message); if (message.kind === "schemaValidate") return { kind: "schemaValidated", documentID: "doc", revision: 0, generation: (message.payload as { generation: number }).generation, diagnostics: validateFrontmatter({}, context.schema) }; return message.kind === "ready" ? snapshot() : { kind: "ack", documentID: "doc", revision: 0 }; } } } } });
   const root = document.createElement("main"); document.body.append(root); editor = createEditor(root);
   await vi.waitFor(() => expect(editor?.mode).toBe("source"));
   expect(editor.view.state.selection.main.head).toBe(9);

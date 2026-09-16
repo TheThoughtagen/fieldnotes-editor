@@ -1,0 +1,35 @@
+name: App CI
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: swift --version | grep 'Swift version 6.2'
+      - run: npm install --global npm@11.19.0
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run typecheck && npm test
+      - run: swift test
+      - run: scripts/test-app-integration.sh
+      - run: scripts/bundle-app.sh release
+      - run: scripts/sign-and-package.sh --verify-unsigned
+      - run: git diff --check
+      - run: ditto -c -k --sequesterRsrc --keepParent build/FIELDNOTES.app build/FIELDNOTES-unsigned-universal.zip
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: FIELDNOTES-unsigned-universal
+          path: build/FIELDNOTES-unsigned-universal.zip
+          if-no-files-found: error

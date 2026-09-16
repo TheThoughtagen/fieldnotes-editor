@@ -19,6 +19,7 @@ enum EditorBridgeKind: String, Codable, Sendable {
     case workspaceOpen
     case contextApplied
     case schemaStatus
+    case schemaValidate
     case imageImport
 }
 
@@ -165,7 +166,7 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             let schemaState = try payloadContainer.decode(String.self, forKey: .init("schemaState"))
             guard revision == baseRevision, generation > 0, ["none", "valid", "invalid"].contains(schemaState) else { throw BridgeProtocolError.invalidValue("schemaStatus") }
             payload = .init(generation: generation, schemaState: schemaState)
-        case .contextApplied:
+        case .contextApplied, .schemaValidate:
             try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["generation"])
             let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
             guard revision == baseRevision, generation > 0 else { throw BridgeProtocolError.invalidValue("contextApplied") }
@@ -242,7 +243,7 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
         case .schemaStatus:
             try payloadContainer.encode(payload.generation, forKey: .init("generation"))
             try payloadContainer.encode(payload.schemaState, forKey: .init("schemaState"))
-        case .contextApplied:
+        case .contextApplied, .schemaValidate:
             try payloadContainer.encode(payload.generation, forKey: .init("generation"))
         case .workspaceSearch:
             try payloadContainer.encodeIfPresent(payload.includeContent, forKey: .init("includeContent"))

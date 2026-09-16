@@ -217,12 +217,11 @@ final class FieldnotesDocument: NSDocument {
     nonisolated override func accommodatePresentedItemDeletion(
         completionHandler: @escaping @Sendable (Error?) -> Void
     ) {
-        Task { @MainActor [weak self] in
-            guard let self else { completionHandler(nil); return }
-            self.externalGeneration += 1
-            do { try self.receiveExternal(nil); completionHandler(nil) }
-            catch { completionHandler(error) }
-        }
+        // A replacing writer also uses deletion accommodation. Acknowledge first so
+        // it can finish, then read under coordination instead of inventing a deletion
+        // conflict during the temporary gap in an atomic replacement.
+        completionHandler(nil)
+        Task { @MainActor [weak self] in await self?.reloadExternalChange() }
     }
 
     override func close() {

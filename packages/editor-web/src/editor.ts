@@ -201,7 +201,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     try {
       const source = view.state.doc.toString();
       if (!cachedRender || cachedRender.source !== source || cachedRender.schema !== schema || cachedRender.remoteImages !== remoteImages) {
-        cachedRender = { source, schema, remoteImages, result: (options.render ?? renderDocument)(source, { allowRemoteImages: remoteImages, frontmatterSchema: schema }) };
+        cachedRender = { source, schema, remoteImages, result: (options.render ?? renderDocument)(source, { allowRemoteImages: remoteImages, frontmatterSchema: schema, ...(bridge.available ? { validateFrontmatter: () => bridge.validateSchema() } : {}) }) };
       }
       const result = await cachedRender.result;
       if (destroyed || token !== renderToken) return;
@@ -214,7 +214,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
       rewritePreviewImages(detached, { generation: renderGeneration, allowRemoteImages: remoteImages }, message => {
         if (!destroyed && token === renderToken && renderGeneration === resourceGeneration) reportImageDiagnostic(message);
       });
-      detached.querySelectorAll("iframe").forEach(frame => frame.remove());
+      if (!remoteImages) detached.querySelectorAll("iframe").forEach(frame => frame.remove());
       detached.className = "fieldnotes-render-stage";
       detached.setAttribute("aria-hidden", "true");
       detached.inert = true;

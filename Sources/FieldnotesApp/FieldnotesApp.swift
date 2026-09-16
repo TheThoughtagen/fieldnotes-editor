@@ -36,7 +36,7 @@ struct FieldnotesApplication: App {
                 editorButton("Cycle Mode", .cycleMode, key: "\\")
                 Divider()
                 editorButton("Toggle Vim", .toggleVim, key: "v", modifiers: [.command, .shift])
-                Button("Toggle Remote Images") { activeSession()?.toggleRemoteImages() }
+                Button("Toggle Remote Media") { activeSession()?.toggleRemoteImages() }
             }
         }
     }
@@ -62,6 +62,9 @@ final class DocumentApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requests.applicationDidFinishLaunching()
+        #if FIELDNOTES_INTEGRATION
+        IntegrationControl.start()
+        #endif
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
