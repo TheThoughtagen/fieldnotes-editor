@@ -15,6 +15,10 @@ enum EditorBridgeKind: String, Codable, Sendable {
     case requestSnapshot
     case status
     case action
+    case workspaceSearch
+    case workspaceOpen
+    case contextApplied
+    case schemaStatus
 }
 
 struct EditorBridgeSelection: Codable, Equatable, Sendable {
@@ -32,6 +36,43 @@ struct EditorBridgePayload: Codable, Equatable, Sendable {
     let line: Int?
     let column: Int?
     let wordCount: Int?
+    let query: String?
+    let generation: Int?
+    let resultID: String?
+    let includeContent: Bool?
+    let schemaState: String?
+
+    init(
+        text: String? = nil,
+        selection: EditorBridgeSelection? = nil,
+        editKind: String? = nil,
+        action: String? = nil,
+        presentationMode: String? = nil,
+        vimMode: String? = nil,
+        line: Int? = nil,
+        column: Int? = nil,
+        wordCount: Int? = nil,
+        query: String? = nil,
+        generation: Int? = nil,
+        resultID: String? = nil,
+        includeContent: Bool? = nil,
+        schemaState: String? = nil
+    ) {
+        self.text = text
+        self.selection = selection
+        self.editKind = editKind
+        self.action = action
+        self.presentationMode = presentationMode
+        self.vimMode = vimMode
+        self.line = line
+        self.column = column
+        self.wordCount = wordCount
+        self.query = query
+        self.generation = generation
+        self.resultID = resultID
+        self.includeContent = includeContent
+        self.schemaState = schemaState
+    }
 }
 
 struct EditorBridgeRequest: Codable, Equatable, Sendable {
@@ -99,6 +140,33 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
                   line > 0, column > 0, words >= 0
             else { throw BridgeProtocolError.invalidValue("status") }
             payload = .init(text: nil, selection: nil, editKind: nil, action: nil, presentationMode: mode, vimMode: vimMode, line: line, column: column, wordCount: words)
+        case .schemaStatus:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["generation", "schemaState"])
+            let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
+            let schemaState = try payloadContainer.decode(String.self, forKey: .init("schemaState"))
+            guard revision == baseRevision, generation > 0, ["none", "valid", "invalid"].contains(schemaState) else { throw BridgeProtocolError.invalidValue("schemaStatus") }
+            payload = .init(generation: generation, schemaState: schemaState)
+        case .contextApplied:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["generation"])
+            let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
+            guard revision == baseRevision, generation > 0 else { throw BridgeProtocolError.invalidValue("contextApplied") }
+            payload = .init(generation: generation)
+        case .workspaceSearch:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: payloadContainer.contains(.init("includeContent")) ? ["query", "generation", "includeContent"] : ["query", "generation"])
+            guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
+            let query = try payloadContainer.decode(String.self, forKey: .init("query"))
+            let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
+            guard query.utf8.count <= 256, generation > 0 else { throw BridgeProtocolError.invalidValue("workspaceSearch") }
+            payload = .init(query: query, generation: generation, includeContent: try payloadContainer.decodeIfPresent(Bool.self, forKey: .init("includeContent")))
+        case .workspaceOpen:
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: ["resultID", "generation"])
+            guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
+            let resultID = try payloadContainer.decode(String.self, forKey: .init("resultID"))
+            let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
+            guard resultID.utf8.count <= 128, UUID(uuidString: resultID) != nil, generation > 0 else {
+                throw BridgeProtocolError.invalidValue("workspaceOpen")
+            }
+            payload = .init(generation: generation, resultID: resultID)
         }
         self.init(kind: kind, documentID: documentID, baseRevision: baseRevision, revision: revision, payload: payload)
     }
@@ -127,6 +195,18 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             try payloadContainer.encode(payload.line, forKey: .init("line"))
             try payloadContainer.encode(payload.column, forKey: .init("column"))
             try payloadContainer.encode(payload.wordCount, forKey: .init("wordCount"))
+        case .schemaStatus:
+            try payloadContainer.encode(payload.generation, forKey: .init("generation"))
+            try payloadContainer.encode(payload.schemaState, forKey: .init("schemaState"))
+        case .contextApplied:
+            try payloadContainer.encode(payload.generation, forKey: .init("generation"))
+        case .workspaceSearch:
+            try payloadContainer.encodeIfPresent(payload.includeContent, forKey: .init("includeContent"))
+            try payloadContainer.encode(payload.query, forKey: .init("query"))
+            try payloadContainer.encode(payload.generation, forKey: .init("generation"))
+        case .workspaceOpen:
+            try payloadContainer.encode(payload.resultID, forKey: .init("resultID"))
+            try payloadContainer.encode(payload.generation, forKey: .init("generation"))
         }
     }
 
@@ -168,7 +248,7 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
 }
 
 private extension EditorBridgePayload {
-    static let empty = Self(text: nil, selection: nil, editKind: nil, action: nil, presentationMode: nil, vimMode: nil, line: nil, column: nil, wordCount: nil)
+    static let empty = Self()
 }
 
 private struct DynamicCodingKey: CodingKey {

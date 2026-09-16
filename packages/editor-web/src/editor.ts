@@ -13,6 +13,7 @@ import { renderDocument } from "@cruciblesoftware/fieldnotes-renderer";
 import { createNativeBridge, EditorStatus, NativeBridge } from "./bridge.js";
 import "@cruciblesoftware/fieldnotes-renderer/styles.css";
 import "./editor.css";
+import { createCommandPalette } from "./commands.js";
 import { locateMarkdownTagObject } from "./markdown-tag-object.js";
 
 export type PresentationMode = "focus" | "source" | "preview";
@@ -131,12 +132,15 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   const editorHost = document.createElement("div"); editorHost.className = "fieldnotes-editor-host";
   const preview = document.createElement("article"); preview.className = "fieldnotes-preview"; preview.hidden = true;
   preview.contentEditable = "false"; preview.setAttribute("aria-label", "Rendered Markdown preview");
-  root.append(editorHost, preview);
+  const diagnostics = document.createElement("aside"); diagnostics.className = "fieldnotes-diagnostics"; diagnostics.setAttribute("role", "status");
+  root.append(editorHost, preview, diagnostics);
+  let schema: Record<string, unknown> | undefined, contextDiagnostics: string[] = [];
   const presentation = new Compartment(); const vimMode = new Compartment();
   const initialDocument = options.initialDocument ?? "# FIELDNOTES\n\n";
   let mode: PresentationMode = "focus", vimEnabled = true, destroyed = false, renderToken = 0, vimState = "normal";
   let cachedWordCount = countWords(initialDocument);
   const renderStages = new Set<HTMLElement>();
+  let cachedRender: { source: string; schema: typeof schema; result: ReturnType<typeof renderDocument> } | undefined;
   let bridge!: NativeBridge; let statusTimer: number | undefined; let renderPreview!: () => Promise<void>;
   const publishStatus = (view: EditorView): void => {
     if (destroyed) return;
@@ -156,12 +160,20 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     EditorView.updateListener.of(update => {
       if (update.docChanged) {
         cachedWordCount = countWords(update.state.doc.toString());
-        if (mode === "preview") void renderPreview();
+        if (renderPreview) void renderPreview();
       }
       if (update.docChanged || update.selectionSet) publishStatus(update.view);
     }),
   ] });
-  const view = new EditorView({ state, parent: editorHost }); bridge = createNativeBridge(view); editorByView.set(view, { bridge }); installNativeExCommands();
+  const view = new EditorView({ state, parent: editorHost }); bridge = createNativeBridge(view, context => {
+    schema = context.schema ?? undefined; contextDiagnostics = context.diagnostics;
+    if (context.mode) setMode(context.mode);
+    if (context.line !== null) {
+      const line = view.state.doc.line(Math.min(context.line, view.state.doc.lines));
+      view.dispatch({ selection: { anchor: Math.min(line.to, line.from + (context.column ?? 1) - 1) }, scrollIntoView: true });
+    }
+    void renderPreview();
+  }); editorByView.set(view, { bridge }); installNativeExCommands();
   let adapter = getCM(view);
   const onVimModeChange = (event: { mode?: string }) => { vimState = typeof event?.mode === "string" ? event.mode : "normal"; publishStatus(view); };
   const attachVimListener = (): void => { adapter?.on("vim-mode-change", onVimModeChange); };
@@ -170,8 +182,16 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   renderPreview = async (): Promise<void> => {
     const token = ++renderToken, detached = document.createElement("article");
     try {
-      const result = await (options.render ?? renderDocument)(view.state.doc.toString(), { allowRemoteImages: false });
+      const source = view.state.doc.toString();
+      if (!cachedRender || cachedRender.source !== source || cachedRender.schema !== schema) {
+        cachedRender = { source, schema, result: (options.render ?? renderDocument)(source, { allowRemoteImages: false, frontmatterSchema: schema }) };
+      }
+      const result = await cachedRender.result;
       if (destroyed || token !== renderToken) return;
+      diagnostics.textContent = [...contextDiagnostics, ...result.diagnostics.map(item => item.message)].join("\n");
+      diagnostics.hidden = !diagnostics.textContent;
+      bridge.postSchemaState(contextDiagnostics.length || result.diagnostics.some(item => item.severity === "error") ? "invalid" : schema ? "valid" : "none");
+      if (mode !== "preview") return;
       detached.innerHTML = result.html;
       for (const image of detached.querySelectorAll<HTMLImageElement>("img[src]")) {
         if (!image.src.startsWith("data:")) image.removeAttribute("src");
@@ -191,6 +211,9 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
       if (!destroyed && token === renderToken) preview.replaceChildren(...detached.childNodes);
     } catch (error) {
       if (destroyed || token !== renderToken) return;
+      diagnostics.textContent = [...contextDiagnostics, error instanceof Error ? error.message : "Render failed"].join("\n");
+      diagnostics.hidden = false;
+      bridge.postSchemaState("invalid");
       const message = document.createElement("p"); message.className = "fieldnotes-preview-error";
       message.textContent = error instanceof Error ? error.message : "Preview could not be rendered."; preview.replaceChildren(message);
     }
@@ -210,6 +233,17 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     attachVimListener();
     vimState = enabled ? "normal" : "off"; publishStatus(view);
   };
+  const palette = createCommandPalette({
+    root, source: () => view.state.doc.toString(), contextGeneration: () => bridge.contextGeneration,
+    searchFiles: (query, includeContent) => bridge.searchFiles(query, includeContent), openFile: id => { void bridge.openFile(id); },
+    navigate: line => { if (mode === "preview") setMode("source"); view.dispatch({ selection: { anchor: view.state.doc.line(Math.min(line, view.state.doc.lines)).from }, scrollIntoView: true }); view.focus(); },
+    runCommand(command) {
+      if (command === "focus" || command === "source" || command === "preview") setMode(command);
+      else if (command === "cycleMode") cycleMode();
+      else if (command === "toggleVim") setVimEnabled(!vimEnabled);
+      else void bridge.requestAction(command);
+    },
+  });
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     const actions: Record<string, () => void> = { "1": () => setMode("focus"), "2": () => setMode("source"), "3": () => setMode("preview"), "\\": cycleMode };
@@ -226,7 +260,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   preview.addEventListener("click", onPreviewClick);
   window.addEventListener("keydown", onKeyDown); root.dataset.mode = mode; publishStatus(view);
   const controller: EditorController = { view, get mode() { return mode; }, get vimEnabled() { return vimEnabled; }, setMode, cycleMode, setVimEnabled,
-    destroy() { if (destroyed) return; destroyed = true; renderToken += 1; for (const stage of renderStages) stage.remove(); renderStages.clear(); window.removeEventListener("keydown", onKeyDown); preview.removeEventListener("click", onPreviewClick); if (statusTimer !== undefined) window.clearTimeout(statusTimer); detachVimListener(); editorByView.delete(view); bridge.destroy(); view.destroy(); root.replaceChildren(); },
+    destroy() { if (destroyed) return; destroyed = true; palette.destroy(); renderToken += 1; for (const stage of renderStages) stage.remove(); renderStages.clear(); window.removeEventListener("keydown", onKeyDown); preview.removeEventListener("click", onPreviewClick); if (statusTimer !== undefined) window.clearTimeout(statusTimer); detachVimListener(); editorByView.delete(view); bridge.destroy(); view.destroy(); root.replaceChildren(); },
   };
   const snapshotAPI = window.fieldnotes;
   Object.defineProperty(window, "fieldnotes", { configurable: true, enumerable: false, writable: false, value: Object.freeze({

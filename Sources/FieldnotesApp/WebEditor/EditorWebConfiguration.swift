@@ -36,6 +36,12 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
                     session.perform(action)
                 }
             }
+            if let url = response.deferredOpenURL {
+                Task { @MainActor [session] in
+                    await Task.yield()
+                    session.openWorkspaceDocument(url, line: response.deferredOpenLine)
+                }
+            }
         } catch {
             replyHandler(nil, "invalid editor message")
         }

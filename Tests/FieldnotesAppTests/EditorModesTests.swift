@@ -109,6 +109,9 @@ struct EditorModesTests {
 
     @Test("application commands expose deterministic mode shortcuts")
     func commandShortcuts() {
+        #expect(EditorCommand.openFile.shortcut == "p")
+        #expect(EditorCommand.searchWorkspace.shortcut == "k")
+        #expect(EditorCommand.commandPalette.shortcut == "p")
         #expect(EditorCommand.focus.shortcut == "1")
         #expect(EditorCommand.source.shortcut == "2")
         #expect(EditorCommand.preview.shortcut == "3")

@@ -67,26 +67,36 @@ struct WebEditorView: NSViewRepresentable {
             self.webView = webView
             webView.navigationDelegate = self
             webView.uiDelegate = self
+            session.onContextChanged = { [weak self] in self?.pushSnapshotIfNeeded(revision: self?.session.state.revision ?? 0, force: true) }
             session.sendCommand = { [weak self] command in self?.send(command) }
         }
 
-        func pushSnapshotIfNeeded(revision: Int) {
-            guard revision != lastPushedRevision, let webView else { return }
+        func pushSnapshotIfNeeded(revision: Int, force: Bool = false, attempt: Int = 0) {
+            guard force || revision != lastPushedRevision, let webView else { return }
             lastPushedRevision = revision
             let generation = registration.currentGeneration
             Task { @MainActor [weak self, weak webView] in
                 guard let self, let webView else { return }
-                _ = try? await webView.callAsyncJavaScript(
+                let accepted = try? await webView.callAsyncJavaScript(
                     "return window.fieldnotes.applyNativeSnapshot(snapshot)",
                     arguments: ["snapshot": self.session.snapshot()],
                     in: nil,
                     contentWorld: .page
                 )
                 guard self.registration.currentGeneration == generation else { return }
+                if accepted as? Bool != true {
+                    self.lastPushedRevision = -1
+                    if attempt < 10 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard self.registration.currentGeneration == generation else { return }
+                        self.pushSnapshotIfNeeded(revision: self.session.state.revision, force: true, attempt: attempt + 1)
+                    }
+                }
             }
         }
 
         func teardown(_ webView: WKWebView) {
+            session.onContextChanged = nil
             session.sendCommand = nil
             Task { @MainActor [weak webView] in
                 _ = try? await webView?.callAsyncJavaScript("window.fieldnotes.destroy()", arguments: [:], in: nil, contentWorld: .page)
@@ -109,6 +119,9 @@ struct WebEditorView: NSViewRepresentable {
             case .cycleMode:
                 script = "window.fieldnotes.cycleMode()"
                 arguments = [:]
+            case .openFile, .commandPalette, .searchWorkspace:
+                script = "window.dispatchEvent(new KeyboardEvent('keydown', {key: key, metaKey: true, shiftKey: shift}))"
+                arguments = ["key": String(command.shortcut), "shift": command == .commandPalette]
             case .toggleVim:
                 script = "window.fieldnotes.toggleVim()"
                 arguments = [:]
@@ -116,6 +129,10 @@ struct WebEditorView: NSViewRepresentable {
             Task { @MainActor [weak webView] in
                 _ = try? await webView?.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
             }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            pushSnapshotIfNeeded(revision: session.state.revision, force: true)
         }
 
         func webView(

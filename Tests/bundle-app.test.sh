@@ -20,7 +20,8 @@ launcher_output=$("$app/Contents/Resources/bin/fieldnotes" 2>&1)
 launcher_status=$?
 set -e
 test "$launcher_status" = 64
-printf '%s\n' "$launcher_output" | grep -qx 'usage: fieldnotes <markdown-file>'
+printf '%s\n' "$launcher_output" | grep -q '^usage: fieldnotes .*PATH$'
+"$app/Contents/Resources/bin/fieldnotes" --help | grep -q 'focus|source|preview'
 probe_path='/tmp/FIELDNOTES launcher [*] $ argument.md'
 set +e
 canonical_output=$("$app/Contents/MacOS/fieldnotes" "$probe_path" 2>&1)

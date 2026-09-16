@@ -6,8 +6,17 @@ interface Selection {
   head: number;
 }
 
+export interface OpenContext {
+  generation: number; workspaceName: string; documentName: string | null;
+  assetPolicy: "workspace" | "document-directory";
+  mode: "focus" | "source" | "preview" | null;
+  line: number | null; column: number | null;
+  diagnostics: string[]; schema: Record<string, unknown> | null;
+}
+
 interface SnapshotReply {
   kind: "snapshot";
+  openContext?: OpenContext;
   documentID: string;
   revision: number;
   text: string;
@@ -51,7 +60,11 @@ type BridgeState = "standalone" | "connecting" | "ready" | "recovering" | "disco
 export interface NativeBridge {
   readonly available: boolean;
   readonly ready: Promise<void>;
+  readonly contextGeneration: number;
+  searchFiles(query: string, includeContent?: boolean): Promise<{ id: string; title: string }[]>;
+  openFile(id: string): Promise<void>;
   postStatus(status: EditorStatus): void;
+  postSchemaState(state: "none" | "valid" | "invalid"): void;
   requestAction(action: "save" | "quit"): Promise<boolean>;
   destroy(): void;
 }
@@ -82,7 +95,8 @@ function installPublicAPI(): void {
 
 installPublicAPI();
 
-export function createNativeBridge(view: EditorView): NativeBridge {
+export function createNativeBridge(view: EditorView, onContext?: (context: OpenContext) => void): NativeBridge {
+  let contextGeneration = 0;
   const handler = (window as WebKitWindow).webkit?.messageHandlers?.native;
   let documentID = "";
   let revision = 0;
@@ -141,7 +155,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     }
   };
 
-  const applySnapshot = (value: unknown): boolean => {
+  const applySnapshotContent = (value: unknown): boolean => {
     if (bridgeState === "disconnected" || bridgeState === "recovering") return false;
     const snapshot = validSnapshot(value);
     if (!snapshot) return false;
@@ -150,6 +164,8 @@ export function createNativeBridge(view: EditorView): NativeBridge {
 
     if (hasSnapshot && snapshot.revision === revision) {
       if (snapshot.text !== authoritativeText) return false;
+      // Context replay acknowledges delivery; it does not restore an older cursor.
+      if (snapshot.openContext && snapshot.openContext.generation <= contextGeneration && !inFlight) return true;
       if (inFlight?.edit.text === authoritativeText) {
         inFlight = undefined;
         recoveryAttempted = false;
@@ -182,6 +198,21 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     inFlight = undefined;
     recoveryAttempted = false;
     applyExactSnapshot(snapshot);
+    return true;
+  };
+  const applyContext = (snapshot: SnapshotReply): void => {
+    const context = snapshot.openContext;
+    if (!context || context.generation < contextGeneration) return;
+    if (context.generation > contextGeneration) {
+      statusPending = undefined;
+      contextGeneration = context.generation;
+      onContext?.(context);
+    }
+    void safePost({ kind: "contextApplied", documentID, baseRevision: revision, revision, payload: { generation: contextGeneration } }).catch(() => undefined);
+  };
+  const applySnapshot = (value: unknown): boolean => {
+    if (!applySnapshotContent(value)) return false;
+    applyContext(value as SnapshotReply);
     return true;
   };
   activeApply = applySnapshot;
@@ -243,6 +274,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
       }
       if (!pending) recoveryAttempted = false;
       setBridgeState("ready");
+      applyContext(snapshot);
       sendPending();
       flushStatus();
     }).catch(() => disconnect());
@@ -356,6 +388,7 @@ export function createNativeBridge(view: EditorView): NativeBridge {
           return;
         }
         setBridgeState("ready");
+        if (contextGeneration) sendSelection(latestEdit().selection);
       }).catch(() => disconnect())
     : Promise.resolve();
 
@@ -391,7 +424,22 @@ export function createNativeBridge(view: EditorView): NativeBridge {
     if (activeApply === applySnapshot) activeApply = () => false;
   };
 
-  return { available: Boolean(handler), ready, postStatus, requestAction, destroy };
+  const postSchemaState = (schemaState: "none" | "valid" | "invalid"): void => {
+    if (!handler || !contextGeneration || destroyed) return;
+    void safePost({ kind: "schemaStatus", documentID, baseRevision: revision, revision, payload: { generation: contextGeneration, schemaState } }).catch(() => undefined);
+  };
+  const searchFiles = async (query: string, includeContent = false): Promise<{ id: string; title: string }[]> => {
+    if (!contextGeneration || !(await waitUntilIdle())) return [];
+    const generation = contextGeneration;
+    const reply = await safePost({ kind: "workspaceSearch", documentID, baseRevision: revision, revision, payload: { query: query.slice(0, 64), generation, includeContent } });
+    if (!isRecord(reply) || reply.kind !== "workspaceResults" || reply.documentID !== documentID || reply.generation !== generation || generation !== contextGeneration || !Array.isArray(reply.results)) return [];
+    return reply.results.filter((item): item is { id: string; title: string } => isRecord(item) && typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && typeof item.title === "string");
+  };
+  const openFile = async (id: string): Promise<void> => {
+    if (!contextGeneration || !(await waitUntilIdle())) return;
+    await safePost({ kind: "workspaceOpen", documentID, baseRevision: revision, revision, payload: { resultID: id, generation: contextGeneration } });
+  };
+  return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, postStatus, postSchemaState, requestAction, destroy };
 }
 
 function transactionKind(update: ViewUpdate): PendingEdit["editKind"] {
@@ -412,8 +460,21 @@ function validSelection(value: unknown): value is Selection {
   return isRecord(value) && Object.keys(value).length === 2 && isInteger(value.anchor) && isInteger(value.head);
 }
 
+function validContext(value: unknown): value is OpenContext {
+  if (!isRecord(value) || Object.keys(value).length !== 9) return false;
+  return isInteger(value.generation) && (value.generation as number) > 0 && typeof value.workspaceName === "string"
+    && (value.documentName === null || typeof value.documentName === "string")
+    && ["workspace", "document-directory"].includes(value.assetPolicy as string)
+    && [null, "focus", "source", "preview"].includes(value.mode as string | null)
+    && (value.line === null || (isInteger(value.line) && (value.line as number) > 0))
+    && (value.column === null || (isInteger(value.column) && (value.column as number) > 0))
+    && Array.isArray(value.diagnostics) && value.diagnostics.every(item => typeof item === "string")
+    && (value.schema === null || isRecord(value.schema));
+}
+
 function validSnapshot(value: unknown): SnapshotReply | undefined {
-  if (!isRecord(value) || Object.keys(value).length !== 5) return undefined;
+  if (!isRecord(value) || Object.keys(value).some(key => !["kind", "documentID", "revision", "text", "selection", "openContext"].includes(key))) return undefined;
+  if (value.openContext !== undefined && !validContext(value.openContext)) return undefined;
   if (value.kind !== "snapshot" || typeof value.documentID !== "string" || !value.documentID || !isInteger(value.revision) || typeof value.text !== "string" || !validSelection(value.selection)) return undefined;
   if (value.selection.anchor > value.text.length || value.selection.head > value.text.length) return undefined;
   return value as unknown as SnapshotReply;

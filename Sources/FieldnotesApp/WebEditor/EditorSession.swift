@@ -1,18 +1,30 @@
 import Foundation
 import Observation
+import FieldnotesCore
 
 enum NativeEditorAction: String, Sendable { case save, quit }
 
-enum SchemaStatus: String, Sendable { case unavailable = "Schema —" }
+enum SchemaStatus: String, Sendable {
+    case unavailable = "Schema —", checking = "Schema checking", valid = "Schema valid", invalid = "Schema error"
+}
 
 enum EditorCommand: Sendable {
-    case focus, source, preview, cycleMode, toggleVim
-    var shortcut: Character { switch self { case .focus: "1"; case .source: "2"; case .preview: "3"; case .cycleMode: "\\"; case .toggleVim: "v" } }
+    case focus, source, preview, cycleMode, toggleVim, openFile, commandPalette, searchWorkspace
+    var shortcut: Character { switch self { case .focus: "1"; case .source: "2"; case .preview: "3"; case .cycleMode: "\\"; case .toggleVim: "v"; case .openFile, .commandPalette: "p"; case .searchWorkspace: "k" } }
+}
+
+struct EditorOpenContext: Sendable {
+    let context: WorkspaceContext
+    let requestedMode: FieldnotesCore.PresentationMode?
+    let line: Int?
+    let column: Int?
 }
 
 struct EditorSessionResponse {
     let reply: [String: Any]
     let deferredAction: NativeEditorAction?
+    let deferredOpenURL: URL?
+    let deferredOpenLine: Int?
 }
 
 @MainActor
@@ -25,12 +37,34 @@ struct EditorSessionResponse {
     private(set) var column = 1
     private(set) var wordCount = 0
     private(set) var schemaStatus: SchemaStatus = .unavailable
+    private(set) var contextGeneration = 0
+    private var pendingOpenContext: EditorOpenContext?
+    private var contextAcknowledged = false
+    private let defaults: UserDefaults
+    var onContextChanged: (() -> Void)?
+    private var workspaceIndex: WorkspaceIndex?
     var onNativeAction: ((NativeEditorAction) -> Void)?
+    var onOpenWorkspaceDocument: ((URL, Int?) -> Void)?
     var sendCommand: ((EditorCommand) -> Void)?
 
-    init(state: DocumentState, documentID: String = UUID().uuidString) {
+    init(state: DocumentState, documentID: String = UUID().uuidString, defaults: UserDefaults = .standard) {
         self.state = state
         self.documentID = documentID
+        self.defaults = defaults
+    }
+
+    func installOpenContext(_ context: EditorOpenContext) {
+        contextGeneration += 1
+        pendingOpenContext = context
+        contextAcknowledged = false
+        switch context.context.schema {
+        case .none: schemaStatus = .unavailable
+        case .loaded: schemaStatus = .checking
+        case .diagnostic: schemaStatus = .invalid
+        }
+        presentationMode = context.requestedMode?.rawValue ?? defaults.string(forKey: modeKey(context.context.workspace)) ?? "focus"
+        workspaceIndex = WorkspaceIndex(root: context.context.workspace)
+        onContextChanged?()
     }
 
     func receive(_ request: EditorBridgeRequest) -> [String: Any] {
@@ -40,13 +74,13 @@ struct EditorSessionResponse {
     func prepareResponse(to request: EditorBridgeRequest) -> EditorSessionResponse {
         if request.kind == .ready {
             guard request.documentID.isEmpty || request.documentID == documentID else { return response(rejection()) }
-            return response(snapshot())
+            return response(snapshot(consumingOpenContext: true))
         }
         guard request.documentID == documentID else { return response(rejection()) }
 
         switch request.kind {
         case .ready:
-            return response(snapshot())
+            return response(snapshot(consumingOpenContext: true))
         case .requestSnapshot:
             return response(snapshot())
         case .selection:
@@ -73,7 +107,10 @@ struct EditorSessionResponse {
                   let words = request.payload.wordCount,
                   validStatusPosition(line: line, column: column)
             else { return response(snapshot()) }
-            presentationMode = mode
+            if contextAcknowledged || pendingOpenContext == nil {
+                presentationMode = mode
+                if let root = pendingOpenContext?.context.workspace { defaults.set(mode, forKey: modeKey(root)) }
+            }
             vimMode = vim
             self.line = line
             self.column = column
@@ -84,6 +121,38 @@ struct EditorSessionResponse {
                   let raw = request.payload.action, let action = NativeEditorAction(rawValue: raw)
             else { return response(snapshot()) }
             return response(acknowledgement(), deferredAction: action)
+        case .schemaStatus:
+            guard request.payload.generation == contextGeneration,
+                  request.baseRevision == state.revision, request.revision == state.revision else { return response(rejection()) }
+            switch request.payload.schemaState {
+            case "valid": schemaStatus = .valid
+            case "invalid": schemaStatus = .invalid
+            default: schemaStatus = .unavailable
+            }
+            return response(acknowledgement())
+        case .contextApplied:
+            guard request.payload.generation == contextGeneration else { return response(rejection()) }
+            contextAcknowledged = true
+            return response(acknowledgement())
+        case .workspaceSearch:
+            guard request.baseRevision == state.revision, request.revision == state.revision,
+                  request.payload.generation == contextGeneration,
+                  let query = request.payload.query, let workspaceIndex
+            else { return response(rejection()) }
+            return response([
+                "kind": "workspaceResults",
+                "documentID": documentID,
+                "revision": state.revision,
+                "generation": contextGeneration,
+                "results": workspaceIndex.search(query, includeContent: request.payload.includeContent ?? false).map { ["id": $0.id, "title": $0.title] },
+            ])
+        case .workspaceOpen:
+            guard request.baseRevision == state.revision, request.revision == state.revision,
+                  request.payload.generation == contextGeneration,
+                  let resultID = request.payload.resultID,
+                  let url = workspaceIndex?.resolve(id: resultID)
+            else { return response(rejection()) }
+            return response(acknowledgement(), deferredOpenURL: url, deferredOpenLine: workspaceIndex?.line(id: resultID))
         }
     }
 
@@ -91,14 +160,56 @@ struct EditorSessionResponse {
         onNativeAction?(action)
     }
 
-    func snapshot() -> [String: Any] {
-        [
+    func openWorkspaceDocument(_ url: URL, line: Int? = nil) {
+        onOpenWorkspaceDocument?(url, line)
+    }
+
+    func snapshot(consumingOpenContext: Bool = false) -> [String: Any] {
+        var value: [String: Any] = [
             "kind": "snapshot",
             "documentID": documentID,
             "revision": state.revision,
             "text": state.editorText,
             "selection": ["anchor": state.selection.anchor, "head": state.selection.head],
         ]
+        if let pendingOpenContext {
+            value["openContext"] = serialized(pendingOpenContext)
+        }
+        return value
+    }
+
+    private func serialized(_ open: EditorOpenContext) -> [String: Any] {
+        var diagnostics = open.context.diagnostics
+        if case .diagnostic(let message) = open.context.schema { diagnostics.append(message) }
+        let lines = state.editorText.split(separator: "\n", omittingEmptySubsequences: false)
+        let requestedLine = open.line ?? 1
+        let line = min(max(requestedLine, 1), max(lines.count, 1))
+        let lineWasClamped = line != requestedLine
+        let requestedColumn = open.column ?? 1
+        let maximumColumn = (lines.indices.contains(line - 1) ? lines[line - 1].utf16.count : 0) + 1
+        let column = min(max(requestedColumn, 1), maximumColumn)
+        if lineWasClamped || column != requestedColumn {
+            diagnostics.append("Requested position was clamped to the document")
+        }
+        var value: [String: Any] = [
+            "generation": contextGeneration,
+            "workspaceName": open.context.workspace.lastPathComponent,
+            "documentName": open.context.document?.lastPathComponent ?? NSNull(),
+            "assetPolicy": open.context.localAssetPolicy.rawValue,
+            "mode": presentationMode,
+            "line": !contextAcknowledged && open.line != nil ? line : NSNull(),
+            "column": !contextAcknowledged && open.line != nil ? column : NSNull(),
+            "diagnostics": diagnostics,
+            "schema": NSNull(),
+        ]
+        if case .loaded(_, let data) = open.context.schema {
+            value["schema"] = try? JSONSerialization.jsonObject(with: data)
+        }
+        return value
+    }
+
+    private func modeKey(_ root: URL) -> String {
+        "workspaceMode." + root.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     private func acknowledgement() -> [String: Any] {
@@ -109,8 +220,13 @@ struct EditorSessionResponse {
         ["kind": "rejected", "reason": "document"]
     }
 
-    private func response(_ reply: [String: Any], deferredAction: NativeEditorAction? = nil) -> EditorSessionResponse {
-        EditorSessionResponse(reply: reply, deferredAction: deferredAction)
+    private func response(
+        _ reply: [String: Any],
+        deferredAction: NativeEditorAction? = nil,
+        deferredOpenURL: URL? = nil,
+        deferredOpenLine: Int? = nil
+    ) -> EditorSessionResponse {
+        EditorSessionResponse(reply: reply, deferredAction: deferredAction, deferredOpenURL: deferredOpenURL, deferredOpenLine: deferredOpenLine)
     }
 
     private func editKind(_ rawValue: String) -> DocumentEditKind? {

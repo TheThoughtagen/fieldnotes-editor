@@ -10,3 +10,9 @@ html, body, #editor { height: 100%; margin: 0; }
 .fieldnotes-preview img { max-width: 100%; height: auto; }
 .fieldnotes-preview-error { color: MarkText; background: Mark; padding: 1rem; }
 .fieldnotes-render-stage { position: fixed; inset: 0 auto auto -10000px; width: 800px; visibility: hidden; pointer-events: none; }
+.fieldnotes-command-palette { position: fixed; z-index: 20; top: 12%; left: 15%; right: 15%; max-height: 65vh; overflow: auto; padding: 1rem; border: 1px solid GrayText; border-radius: 0.6rem; background: Canvas; color: CanvasText; box-shadow: 0 1rem 4rem #0005; }
+.fieldnotes-command-palette input { width: 100%; box-sizing: border-box; padding: 0.75rem; font: inherit; background: Canvas; color: CanvasText; border: 1px solid GrayText; }
+.fieldnotes-command-palette [role=option] { padding: 0.65rem; cursor: pointer; }
+.fieldnotes-command-palette [aria-selected=true] { background: Highlight; color: HighlightText; }
+.fieldnotes-diagnostics { position: fixed; z-index: 10; bottom: 0; left: 0; right: 0; max-height: 20vh; overflow: auto; white-space: pre-wrap; font: 0.85rem system-ui; padding: 0.6rem 1rem; color: MarkText; background: Mark; }
+.fieldnotes-diagnostics:empty, .fieldnotes-diagnostics[hidden] { display: none; }

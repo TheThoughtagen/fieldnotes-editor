@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import FieldnotesCore
 
 typealias DocumentByteWriter = (_ data: Data, _ destination: URL) throws -> Void
 
@@ -83,7 +84,12 @@ final class FieldnotesDocument: NSDocument {
     }
 
     override func makeWindowControllers() {
-        addWindowController(DocumentWindowController(state: state))
+        let controller = DocumentWindowController(state: state)
+        if let fileURL, let context = try? WorkspaceResolver().resolve(input: fileURL) {
+            controller.workspaceURL = context.workspace
+            controller.session.installOpenContext(.init(context: context, requestedMode: nil, line: nil, column: nil))
+        }
+        addWindowController(controller)
     }
 
     private func connectChangeAccounting() {

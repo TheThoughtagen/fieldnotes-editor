@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
+import FieldnotesCore
 
 @MainActor
 final class DocumentWindowController: NSWindowController {
     let state: DocumentState
     let session: EditorSession
+    var workspaceURL: URL?
 
     init(state: DocumentState) {
         self.state = state
@@ -29,6 +31,9 @@ final class DocumentWindowController: NSWindowController {
             case .save: (self.document as? NSDocument)?.save(nil)
             case .quit: self.window?.performClose(nil)
             }
+        }
+        session.onOpenWorkspaceDocument = { [weak self] url, line in
+            ApplicationOpenRouter().route(OpenRequest(target: url, line: line), workspaceRoot: self?.workspaceURL)
         }
     }
 
