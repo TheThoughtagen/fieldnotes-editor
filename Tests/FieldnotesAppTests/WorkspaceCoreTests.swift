@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Workspace and launch core", .serialized)
 struct WorkspaceCoreTests {
+    @Test("unmarked native file-reference URLs stop workspace traversal at filesystem root")
+    func fileReferenceWorkspaceStopsAtRoot() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("standalone.md")
+        try Data("body".utf8).write(to: url)
+        let reference = try #require((url as NSURL).fileReferenceURL()) as URL
+        let context = try WorkspaceResolver().resolve(input: reference)
+        #expect(context.workspace.path == root.resolvingSymlinksInPath().path)
+        #expect(context.schema == .none)
+        // An explicit filesystem root also exercises bounded schema/config discovery.
+        let fromRoot = try WorkspaceResolver().resolve(input: reference, workspaceRoot: URL(fileURLWithPath: "/"))
+        #expect(fromRoot.workspace.path == "/")
+    }
+
     @Test("nearest real marker wins and file markers work")
     func nearestMarker() throws {
         let root = try temporaryDirectory()

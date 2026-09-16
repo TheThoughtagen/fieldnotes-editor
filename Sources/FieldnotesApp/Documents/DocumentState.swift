@@ -30,6 +30,10 @@ final class DocumentState {
     private(set) var editorText: String
     private(set) var selection: EditorSelection
     private(set) var revision: Int
+    private(set) var conflict: ConflictModel?
+    var externalReadError: String?
+    private(set) var diskWasDeleted = false
+    var hasUnsavedText: Bool { !hasSameUTF8Bytes(editorText, baseText) || diskWasDeleted }
     @ObservationIgnored var onEdit: ((DocumentEditKind) -> Void)?
 
     init() {
@@ -62,6 +66,7 @@ final class DocumentState {
     func promoteSavedSnapshot(_ snapshot: DocumentSaveSnapshot) {
         baseData = snapshot.data
         baseText = snapshot.text
+        diskWasDeleted = false
     }
 
     func acceptEditorText(
@@ -73,6 +78,9 @@ final class DocumentState {
         guard !hasSameUTF8Bytes(text, editorText) else { return }
         editorText = text
         revision += 1
+        if let conflict {
+            self.conflict = ConflictModel(base: conflict.base, ours: text, theirs: conflict.theirs)
+        }
         onEdit?(kind)
     }
 
@@ -90,6 +98,67 @@ final class DocumentState {
         editorText = text
         selection = clamped(oldSelection, to: text)
         revision += 1
+    }
+
+    /// A repeated baseline/self-save notification must not disturb newer editor transactions.
+    func acceptExternal(_ data: Data?) throws {
+        if let data, String(data: data, encoding: .utf8) == nil { throw DocumentStateError.invalidUTF8 }
+        externalReadError = nil
+        if data == (diskWasDeleted ? nil : baseData), conflict == nil { return }
+        if let conflict, conflict.theirs == data { return }
+        if hasUnsavedText || conflict != nil || data == nil {
+            conflict = ConflictModel(base: baseData, ours: editorText, theirs: data)
+        } else if let data {
+            let oldText = editorText
+            let oldSelection = selection
+            try replaceFromDisk(data)
+            selection = mapped(oldSelection, from: oldText, to: editorText)
+        }
+    }
+
+    /// IDs invalidate a pending confirmation if either version changes while it is shown.
+    @discardableResult
+    func resolveConflict(id: UUID, using resolution: ConflictResolution) throws -> Bool {
+        guard let conflict, conflict.id == id else { return false }
+        let selected: String
+        switch resolution {
+        case .editor: selected = editorText
+        case .disk:
+            guard let data = conflict.theirs, let text = String(data: data, encoding: .utf8) else { return false }
+            selected = text
+        case .merged(let text): selected = text
+        }
+        let oldText = editorText
+        let oldSelection = selection
+        baseData = conflict.theirs ?? Data()
+        baseText = String(data: baseData, encoding: .utf8) ?? ""
+        diskWasDeleted = conflict.theirs == nil
+        editorText = selected
+        selection = mapped(oldSelection, from: oldText, to: selected)
+        self.conflict = nil
+        revision += 1
+        return true
+    }
+
+    /// Map a single changed span in UTF-16 coordinates, retaining positions in common text.
+    private func mapped(_ selection: EditorSelection, from old: String, to new: String) -> EditorSelection {
+        let before = Array(old.utf16), after = Array(new.utf16)
+        var prefix = 0
+        while prefix < min(before.count, after.count), before[prefix] == after[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < min(before.count, after.count) - prefix,
+              before[before.count - suffix - 1] == after[after.count - suffix - 1] { suffix += 1 }
+        func position(_ offset: Int) -> Int {
+            let mapped: Int
+            if offset < prefix { mapped = offset }
+            else if offset >= before.count - suffix { mapped = offset + after.count - before.count }
+            else { mapped = prefix + min(offset - prefix, after.count - prefix - suffix) }
+            var valid = min(max(mapped, 0), after.count)
+            if valid > 0, valid < after.count, (0xDC00...0xDFFF).contains(after[valid]),
+               (0xD800...0xDBFF).contains(after[valid - 1]) { valid -= 1 }
+            return valid
+        }
+        return EditorSelection(anchor: position(selection.anchor), head: position(selection.head))
     }
 
     private func clamped(_ selection: EditorSelection, to text: String) -> EditorSelection {

@@ -1,0 +1,223 @@
+Building for debugging...
+[0/6] Write swift-version--1AB21518FC5DEDBE.txt
+Build complete! (0.19s)
+◇ Test run started.
+↳ Testing Library Version: swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a
+◇ Suite "Workspace and launch core" started.
+◇ Suite "Editor modes and native actions" started.
+◇ Suite "Native editor bridge" started.
+◇ Suite "Native Markdown documents" started.
+◇ Suite "External Markdown changes" started.
+◇ Suite ImageImporterTests started.
+◇ Suite "Workspace editor session" started.
+◇ Suite "Application open routing" started.
+◇ Test applicationPlistRegistersNativeMarkdownDocuments() started.
+◇ Test applicationIdentityIsSharedAcrossEntryPoints() started.
+◇ Test destinationSwapBeforeDescriptorOpenCannotWriteOutsideRoot() started.
+◇ Test resourceReadIsDescriptorAnchoredAndImageTyped() started.
+◇ Test authorizedRootAncestorSwapCannotRedirectReadOrWrite() started.
+◇ Test stoppedResourceAfterReadBeforeActorDeliveryGetsNoCallbacksAndQueueProgresses() started.
+◇ Test saveAsRefreshesResourceRootAndInvalidatesOldGeneration() started.
+◇ Test resourceHandlerQueuesPastWorkerLimitAndCancellationFreesCapacity() started.
+◇ Test nativeRemoteImagePreferenceIsDisabledByDefaultAndReplaysContextWhenToggled() started.
+◇ Test documentDirectoryLinkInPlaceReturnsPublicationDiagnostic() started.
+◇ Test sessionScopesResourcesToActiveDocumentPolicyAndConfigurationRegistersOnlyCustomScheme() started.
+◇ Test optionLinkWithoutBrowserPathUsesNativeSelectionAndKeepsFileInPlace() started.
+◇ Test unsavedImportResumesAfterNativeSaveAndUsesNewGenerationRoot() started.
+◇ Test forgedImageMIMEWritesNothing() started.
+◇ Test imagesSymlinkCannotEscapeAuthorizedDocumentDirectory() started.
+◇ Test resourceResolverRejectsTraversalStaleGenerationAndUnsupportedScheme() started.
+◇ Test resourceResolverDecodesOneMarkdownURLLayerAndRejectsMalformedEncoding() started.
+◇ Test copyNeverOverwritesAndStaysInDestination() started.
+◇ Test bridgeTeardownCancelsDeferredFirstSaveBeforeAssetMutation() started.
+◇ Test copySanitizesHostileNamesAndRejectsNonFiles() started.
+◇ Test freshUntitledDocumentInstallsImportHandshakeWithoutReadAuthority() started.
+◇ Test firstSaveThroughDocumentCallbackRefreshesContextOnceAndResumesImport() started.
+◇ Test sessionImportCopiesBesideSavedDocumentAndReturnsOnlyRelativeMarkdownData() started.
+◇ Test unsavedSessionRequiresNativeSaveLocationBeforeImport() started.
+◇ Test nativePresentedItemMoveRefreshesAuthorityWithoutSave() started.
+✔ Test applicationIdentityIsSharedAcrossEntryPoints() passed after 0.005 seconds.
+✔ Test applicationPlistRegistersNativeMarkdownDocuments() passed after 0.005 seconds.
+◇ Test "native action envelopes are closed and document scoped" started.
+◇ Test "native read callbacks do not discard unsaved editor text" started.
+◇ Test "strict envelopes reject missing, extra, unknown, and negative fields" started.
+◇ Test "unchanged CRLF source round-trips byte-for-byte" started.
+◇ Test "open context survives delivery loss until generation acknowledgement" started.
+◇ Test "cold launch queues and drains requests in arrival order" started.
+◇ Test "unmarked native file-reference URLs stop workspace traversal at filesystem root" started.
+◇ Test case passing 1 argument source → "{"kind":"transaction","documentID":"doc","baseRevision":0,"revision":1,"payload":{"text":"x","selection":{"anchor":1,"head":1},"editKind":"done"},"extra":true}" to "strict envelopes reject missing, extra, unknown, and negative fields" started.
+✔ Test authorizedRootAncestorSwapCannotRedirectReadOrWrite() passed after 0.008 seconds.
+✔ Test "unmarked native file-reference URLs stop workspace traversal at filesystem root" passed after 0.003 seconds.
+◇ Test "nearest real marker wins and file markers work" started.
+✔ Test resourceReadIsDescriptorAnchoredAndImageTyped() passed after 0.010 seconds.
+✔ Test "nearest real marker wins and file markers work" passed after 0.001 seconds.
+◇ Test "symlink markers are ignored and folder input remains exact" started.
+✔ Test "symlink markers are ignored and folder input remains exact" passed after 0.001 seconds.
+✔ Test imagesSymlinkCannotEscapeAuthorizedDocumentDirectory() passed after 0.012 seconds.
+◇ Test "config and schema use strict precedence without fallback" started.
+✔ Test copySanitizesHostileNamesAndRejectsNonFiles() passed after 0.012 seconds.
+✔ Test destinationSwapBeforeDescriptorOpenCannotWriteOutsideRoot() passed after 0.016 seconds.
+✔ Test "config and schema use strict precedence without fallback" passed after 0.003 seconds.
+◇ Test "config rejects extra keys and escaping schema paths" started.
+✔ Test "config rejects extra keys and escaping schema paths" passed after 0.001 seconds.
+◇ Test "open URLs round-trip Unicode and reject ambiguous structure" started.
+✔ Test copyNeverOverwritesAndStaysInDestination() passed after 0.017 seconds.
+✔ Test "open URLs round-trip Unicode and reject ambiguous structure" passed after 0.001 seconds.
+◇ Test "CLI accepts closed flags and emits stable exit classes" started.
+✔ Test "CLI accepts closed flags and emits stable exit classes" passed after 0.001 seconds.
+◇ Test "schema discovery is nearest and cannot cross a Git marker" started.
+✔ Test "schema discovery is nearest and cannot cross a Git marker" passed after 0.003 seconds.
+◇ Test "CLI schema outranks invalid config but its diagnostic remains visible" started.
+✔ Test "CLI schema outranks invalid config but its diagnostic remains visible" passed after 0.001 seconds.
+◇ Test "bundled CLI targets its owning app without URL-handler registration" started.
+✔ Test "bundled CLI targets its owning app without URL-handler registration" passed after 0.001 seconds.
+◇ Test "configuration reads enforce the byte budget on the opened descriptor" started.
+✔ Test "configuration reads enforce the byte budget on the opened descriptor" passed after 0.001 seconds.
+✔ Suite "Workspace and launch core" passed after 0.026 seconds.
+✔ Test saveAsRefreshesResourceRootAndInvalidatesOldGeneration() passed after 0.177 seconds.
+✔ Test nativeRemoteImagePreferenceIsDisabledByDefaultAndReplaysContextWhenToggled() passed after 0.179 seconds.
+✔ Test sessionScopesResourcesToActiveDocumentPolicyAndConfigurationRegistersOnlyCustomScheme() passed after 0.179 seconds.
+✔ Test resourceResolverRejectsTraversalStaleGenerationAndUnsupportedScheme() passed after 0.187 seconds.
+✔ Test resourceResolverDecodesOneMarkdownURLLayerAndRejectsMalformedEncoding() passed after 0.187 seconds.
+✔ Test freshUntitledDocumentInstallsImportHandshakeWithoutReadAuthority() passed after 0.449 seconds.
+✔ Test nativePresentedItemMoveRefreshesAuthorityWithoutSave() passed after 0.519 seconds.
+✔ Test unsavedSessionRequiresNativeSaveLocationBeforeImport() passed after 0.519 seconds.
+✔ Test optionLinkWithoutBrowserPathUsesNativeSelectionAndKeepsFileInPlace() passed after 0.545 seconds.
+✔ Test documentDirectoryLinkInPlaceReturnsPublicationDiagnostic() passed after 0.545 seconds.
+✔ Test forgedImageMIMEWritesNothing() passed after 0.545 seconds.
+✔ Test unsavedImportResumesAfterNativeSaveAndUsesNewGenerationRoot() passed after 0.545 seconds.
+✔ Test sessionImportCopiesBesideSavedDocumentAndReturnsOnlyRelativeMarkdownData() passed after 0.549 seconds.
+✔ Test stoppedResourceAfterReadBeforeActorDeliveryGetsNoCallbacksAndQueueProgresses() passed after 0.599 seconds.
+✔ Test "unchanged CRLF source round-trips byte-for-byte" passed after 0.593 seconds.
+✔ Test "open context survives delivery loss until generation acknowledgement" passed after 0.593 seconds.
+✔ Test "cold launch queues and drains requests in arrival order" passed after 0.594 seconds.
+✔ Test "native read callbacks do not discard unsaved editor text" passed after 0.593 seconds.
+✔ Test "native action envelopes are closed and document scoped" passed after 0.594 seconds.
+◇ Test case passing 1 argument source → "{"kind":"mystery","documentID":"doc","baseRevision":0,"revision":1,"payload":{}}" to "strict envelopes reject missing, extra, unknown, and negative fields" started.
+◇ Test "canonical aliases reuse the existing document URL" started.
+◇ Test "workspace index exposes opaque IDs and revalidates removed files" started.
+◇ Test "image import envelopes are bounded, generation scoped, and closed" started.
+◇ Test "presenter reload maps cursor past an inserted prefix" started.
+◇ Test "BOM and missing final newline survive edits undone to the baseline" started.
+✔ Test firstSaveThroughDocumentCallbackRefreshesContextOnceAndResumesImport() passed after 0.690 seconds.
+✔ Test resourceHandlerQueuesPastWorkerLimitAndCancellationFreesCapacity() passed after 0.694 seconds.
+✔ Test "canonical aliases reuse the existing document URL" passed after 0.094 seconds.
+✔ Test "workspace index exposes opaque IDs and revalidates removed files" passed after 0.094 seconds.
+◇ Test case passing 1 argument source → "{"kind":"transaction","documentID":"doc","baseRevision":-1,"revision":0,"payload":{"text":"x","selection":{"anchor":1,"head":1},"editKind":"done"}}" to "strict envelopes reject missing, extra, unknown, and negative fields" started.
+✔ Suite "Application open routing" passed after 0.695 seconds.
+◇ Test "workspace bridge messages are closed, bounded, and generation scoped" started.
+✔ Test "BOM and missing final newline survive edits undone to the baseline" passed after 0.094 seconds.
+✔ Test "image import envelopes are bounded, generation scoped, and closed" passed after 0.094 seconds.
+◇ Test "invalid UTF-8 reports a typed error without mutating state" started.
+◇ Test "preparing an action reply never performs its side effect eagerly" started.
+✔ Test bridgeTeardownCancelsDeferredFirstSaveBeforeAssetMutation() passed after 0.694 seconds.
+✔ Suite ImageImporterTests passed after 0.695 seconds.
+✔ Test "preparing an action reply never performs its side effect eagerly" passed after 0.001 seconds.
+✔ Test "invalid UTF-8 reports a typed error without mutating state" passed after 0.001 seconds.
+✔ Test "workspace bridge messages are closed, bounded, and generation scoped" passed after 0.001 seconds.
+◇ Test case passing 1 argument source → "{"kind":"transaction","documentID":"doc","baseRevision":0,"revision":1,"payload":{"text":"x","selection":{"anchor":1,"head":1},"editKind":"done","surprise":1}}" to "strict envelopes reject missing, extra, unknown, and negative fields" started.
+◇ Test "warm contexts notify delivery and remembered modes survive new sessions" started.
+◇ Test "reply completes before deferred quit tears down its target" started.
+◇ Test "text edits advance revision and report undo semantics" started.
+◇ Test case passing 1 argument source → "{"kind":"selection","documentID":"doc","baseRevision":0,"revision":0,"payload":{"selection":{"anchor":0}}}" to "strict envelopes reject missing, extra, unknown, and negative fields" started.
+✔ Test "warm contexts notify delivery and remembered modes survive new sessions" passed after 0.009 seconds.
+◇ Test "workspace search finds headings links tags outside the active document" started.
+✔ Test "text edits advance revision and report undo semantics" passed after 0.009 seconds.
+◇ Test "selection-only transactions neither revise nor dirty the document" started.
+✔ Test "reply completes before deferred quit tears down its target" passed after 0.010 seconds.
+✔ Test "strict envelopes reject missing, extra, unknown, and negative fields" with 5 test cases passed after 0.700 seconds.
+◇ Test "invalid wrong-document and stale actions never schedule native effects" started.
+◇ Test "ready returns a JSON-safe snapshot and wrong documents disclose no text" started.
+✔ Test "workspace search finds headings links tags outside the active document" passed after 0.003 seconds.
+◇ Test "renderer schema status is accepted only for the active context" started.
+✔ Test "selection-only transactions neither revise nor dirty the document" passed after 0.002 seconds.
+◇ Test "composed source changing to decomposed Unicode is an exact edit" started.
+✔ Test "invalid wrong-document and stale actions never schedule native effects" passed after 0.002 seconds.
+✔ Test "renderer schema status is accepted only for the active context" passed after 0.001 seconds.
+✔ Test "ready returns a JSON-safe snapshot and wrong documents disclose no text" passed after 0.002 seconds.
+◇ Test "non-Markdown directories consume the traversal budget" started.
+◇ Test "status messages validate bounded enum and positive coordinates" started.
+◇ Test "valid edits, undo, and redo advance only the native revision" started.
+✔ Test "composed source changing to decomposed Unicode is an exact edit" passed after 0.001 seconds.
+◇ Test "decomposed source changing to composed Unicode dirties the document" started.
+✔ Test "non-Markdown directories consume the traversal budget" passed after 0.012 seconds.
+◇ Test "one line cannot exceed the per-document content record budget" started.
+✔ Test "presenter reload maps cursor past an inserted prefix" passed after 0.122 seconds.
+✔ Test "valid edits, undo, and redo advance only the native revision" passed after 0.012 seconds.
+◇ Test "native save catches an external edit before its notification arrives" started.
+◇ Test "selection-only updates preserve revision and UTF-16 offsets" started.
+✔ Test "decomposed source changing to composed Unicode dirties the document" passed after 0.011 seconds.
+◇ Test "disk replacement preserves state identity, clamps selection, and avoids edit callbacks" started.
+✔ Test "status messages validate bounded enum and positive coordinates" passed after 0.012 seconds.
+◇ Test "application commands expose deterministic mode shortcuts" started.
+✔ Test "native save catches an external edit before its notification arrives" passed after 0.146 seconds.
+✔ Test "one line cannot exceed the per-document content record budget" passed after 0.146 seconds.
+◇ Test "unresolved conflicts block native manual saves and autosaves" started.
+◇ Test "Setext H2 and full collapsed shortcut reference links retain source lines" started.
+✔ Test "unresolved conflicts block native manual saves and autosaves" passed after 0.004 seconds.
+✔ Test "selection-only updates preserve revision and UTF-16 offsets" passed after 0.150 seconds.
+✔ Test "disk replacement preserves state identity, clamps selection, and avoids edit callbacks" passed after 0.150 seconds.
+✔ Test "application commands expose deterministic mode shortcuts" passed after 0.150 seconds.
+◇ Test "conflict choices retain all versions until confirmation and update native dirty accounting" started.
+✔ Suite "Editor modes and native actions" passed after 0.874 seconds.
+◇ Test "stale, future, and replayed transactions receive authoritative snapshots" started.
+◇ Test "saved snapshots become the exact baseline without discarding later edits" started.
+✔ Test "Setext H2 and full collapsed shortcut reference links retain source lines" passed after 0.006 seconds.
+◇ Test "background indexing cannot install results from a superseded workspace" started.
+✔ Test "conflict choices retain all versions until confirmation and update native dirty accounting" passed after 0.012 seconds.
+✔ Test "saved snapshots become the exact baseline without discarding later edits" passed after 0.012 seconds.
+✔ Test "stale, future, and replayed transactions receive authoritative snapshots" passed after 0.012 seconds.
+◇ Test "new editor or disk revisions invalidate an open confirmation" started.
+◇ Test "frame and body validation rejects subframes before decoding" started.
+◇ Test "document reads retain the persistent observable state" started.
+✔ Test "new editor or disk revisions invalidate an open confirmation" passed after 0.003 seconds.
+✔ Test "document reads retain the persistent observable state" passed after 0.003 seconds.
+◇ Test "deletion callback retains text and requires explicit recreation" started.
+◇ Test "editor edit, undo, and redo update NSDocument change accounting" started.
+✔ Test "frame and body validation rejects subframes before decoding" passed after 0.007 seconds.
+◇ Test "web configuration is nonpersistent and registers then tears down one page-world handler" started.
+✔ Test "deletion callback retains text and requires explicit recreation" passed after 0.007 seconds.
+◇ Test "invalid UTF-8 cannot replace or be overwritten by the editor" started.
+✔ Test "editor edit, undo, and redo update NSDocument change accounting" passed after 0.008 seconds.
+◇ Test "faulted safe write leaves the original file byte-identical" started.
+✔ Test "web configuration is nonpersistent and registers then tears down one page-world handler" passed after 0.008 seconds.
+◇ Test "a document window owns one stable editor session" started.
+✔ Test "faulted safe write leaves the original file byte-identical" passed after 0.006 seconds.
+◇ Test "successful safe write replaces the destination" started.
+✔ Test "background indexing cannot install results from a superseded workspace" passed after 0.110 seconds.
+◇ Test "the WebKit handler returns workspace results after background indexing" started.
+✔ Test "invalid UTF-8 cannot replace or be overwritten by the editor" passed after 0.088 seconds.
+◇ Test "delayed reads reconcile against edits made while awaiting coordination" started.
+✔ Test "a document window owns one stable editor session" passed after 0.083 seconds.
+◇ Test "reply handler holds the session weakly" started.
+✔ Test "successful safe write replaces the destination" passed after 0.086 seconds.
+◇ Test "the document opts into autosave and Versions without concurrent I/O" started.
+✔ Test "reply handler holds the session weakly" passed after 0.006 seconds.
+◇ Test "navigation permits only the exact editor page and user HTTPS links" started.
+✔ Test "the WebKit handler returns workspace results after background indexing" passed after 0.008 seconds.
+✔ Test "the document opts into autosave and Versions without concurrent I/O" passed after 0.001 seconds.
+◇ Test "document windows retain the persistent state and native geometry" started.
+✔ Test "navigation permits only the exact editor page and user HTTPS links" passed after 0.001 seconds.
+✔ Suite "Workspace editor session" passed after 0.995 seconds.
+✔ Suite "Native editor bridge" passed after 0.995 seconds.
+✔ Test "delayed reads reconcile against edits made while awaiting coordination" passed after 0.070 seconds.
+◇ Test "a move invalidates pending reads from the former path" started.
+✔ Test "document windows retain the persistent state and native geometry" passed after 0.065 seconds.
+✔ Suite "Native Markdown documents" passed after 1.061 seconds.
+✔ Test "a move invalidates pending reads from the former path" passed after 0.122 seconds.
+◇ Test "successful native save notifications preserve subsequent edits and selection" started.
+✔ Test "successful native save notifications preserve subsequent edits and selection" passed after 0.118 seconds.
+◇ Test "saving a copy onto the conflicted original is still blocked" started.
+✔ Test "saving a copy onto the conflicted original is still blocked" passed after 0.002 seconds.
+◇ Test "an external write during temporary output aborts atomic replacement" started.
+✔ Test "an external write during temporary output aborts atomic replacement" passed after 0.003 seconds.
+◇ Test "native recovery autosaves do not promote the original disk baseline" started.
+✔ Test "native recovery autosaves do not promote the original disk baseline" passed after 0.007 seconds.
+◇ Test "a newer edit during a native save survives snapshot promotion" started.
+✔ Test "a newer edit during a native save survives snapshot promotion" passed after 0.011 seconds.
+◇ Test "confirmed editor resolution can be saved through the native save lifecycle" started.
+✔ Test "confirmed editor resolution can be saved through the native save lifecycle" passed after 0.018 seconds.
+◇ Test "Save As invalidates a pending read of the previous location" started.
+✔ Test "Save As invalidates a pending read of the previous location" passed after 0.113 seconds.
+✔ Suite "External Markdown changes" passed after 1.458 seconds.
+✔ Test run with 98 tests in 8 suites passed after 1.460 seconds.

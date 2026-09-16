@@ -1,0 +1,26 @@
+Building for debugging...
+[0/1] Planning build
+[0/8] Write sources
+[1/8] Write swift-version--1AB21518FC5DEDBE.txt
+[3/5] Compiling FieldnotesAppTests ExternalChangeTests.swift
+[4/5] Emitting module FieldnotesAppTests
+[4/6] Write Objects.LinkFileList
+[5/6] Linking FieldnotesPackageTests
+Build complete! (4.89s)
+◇ Test run started.
+↳ Testing Library Version: swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a
+◇ Suite "External Markdown changes" started.
+◇ Test "native read callbacks do not discard unsaved editor text" started.
+✘ Test "native read callbacks do not discard unsaved editor text" recorded an issue at ExternalChangeTests.swift:17:9: Expectation failed: (document.state.editorText → "theirs") == "ours"
+✘ Test "native read callbacks do not discard unsaved editor text" recorded an issue at ExternalChangeTests.swift:18:9: Expectation failed: (document.state.baseText → "theirs") == "base"
+✘ Test "native read callbacks do not discard unsaved editor text" failed after 0.054 seconds with 2 issues.
+◇ Test "presenter reload maps cursor past an inserted prefix" started.
+✘ Test "presenter reload maps cursor past an inserted prefix" recorded an issue at ExternalChangeTests.swift:31:9: Expectation failed: (document.state.editorText → "hello world") == "new hello world"
+✘ Test "presenter reload maps cursor past an inserted prefix" recorded an issue at ExternalChangeTests.swift:32:9: Expectation failed: (document.state.selection → EditorSelection(anchor: 6, head: 11)) == (.init(anchor: 10, head: 15) → EditorSelection(anchor: 10, head: 15))
+✘ Test "presenter reload maps cursor past an inserted prefix" failed after 1.694 seconds with 2 issues.
+◇ Test "native save catches an external edit before its notification arrives" started.
+✘ Test "native save catches an external edit before its notification arrives" recorded an issue at ExternalChangeTests.swift:42:9: Expectation failed: an error was expected but none was thrown
+✘ Test "native save catches an external edit before its notification arrives" recorded an issue at ExternalChangeTests.swift:45:9: Expectation failed: try Data(contentsOf: url) == Data("theirs".utf8)
+✘ Test "native save catches an external edit before its notification arrives" failed after 0.007 seconds with 2 issues.
+✘ Suite "External Markdown changes" failed after 1.757 seconds with 6 issues.
+✘ Test run with 3 tests in 1 suite failed after 1.757 seconds with 6 issues.

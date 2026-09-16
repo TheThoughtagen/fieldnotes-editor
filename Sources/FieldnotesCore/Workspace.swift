@@ -91,6 +91,9 @@ public struct WorkspaceResolver: Sendable {
                 || isMarker(cursor.appendingPathComponent(".git")) {
                 return cursor
             }
+            // File-reference NSURLs can produce /.. when deleting the root component.
+            // Stop by path before asking Foundation for another ancestor.
+            if cursor.path == "/" || cursor.path.isEmpty { return start }
             let parent = cursor.deletingLastPathComponent()
             if parent.path == cursor.path { return start }
             cursor = parent
@@ -139,7 +142,7 @@ public struct WorkspaceResolver: Sendable {
         while contains(cursor, in: root) {
             let candidate = cursor.appendingPathComponent(name)
             if isMarker(candidate) { return candidate }
-            if cursor == root { break }
+            if cursor.path == root.path || cursor.path == "/" || cursor.path.isEmpty { break }
             cursor = cursor.deletingLastPathComponent()
         }
         return nil

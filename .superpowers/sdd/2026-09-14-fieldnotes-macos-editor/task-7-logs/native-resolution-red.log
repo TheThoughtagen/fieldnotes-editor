@@ -1,0 +1,28 @@
+Building for debugging...
+[0/8] Write sources
+[1/8] Write swift-version--1AB21518FC5DEDBE.txt
+[3/5] Emitting module FieldnotesAppTests
+[4/5] Compiling FieldnotesAppTests ExternalChangeTests.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking FieldnotesPackageTests
+Build complete! (3.66s)
+◇ Test run started.
+↳ Testing Library Version: swift-6.2-DEVELOPMENT-SNAPSHOT-2025-12-03-a
+◇ Suite "External Markdown changes" started.
+◇ Test "native recovery autosaves do not promote the original disk baseline" started.
+✔ Test "native recovery autosaves do not promote the original disk baseline" passed after 0.188 seconds.
+◇ Test "confirmed editor resolution can be saved through the native save lifecycle" started.
+✘ Test "confirmed editor resolution can be saved through the native save lifecycle" recorded an issue at ExternalChangeTests.swift:292:9: Expectation failed: (error → Error Domain=NSCocoaErrorDomain Code=67000 "The document “note.md” could not be saved. The file has been changed by another application." UserInfo={NSRecoveryAttempter=<NSDocumentErrorRecoveryAttempter: 0xa1b0b0eb0>, NSLocalizedRecoverySuggestion=Click Save Anyway to keep your changes and save the changes made by the other application as a version, or click Revert to keep the changes from the other application and save your changes as a version. You can also click Save As to save your changes to a different file., NSURL=file:///var/folders/jy/nmh43099607fl9kmv2s8gbdh0000gn/T/external-BDC8EAED-C83E-4195-8379-0B99DC25CA15/note.md, NSLocalizedDescription=The document “note.md” could not be saved. The file has been changed by another application., NSLocalizedFailureReason=The file has been changed by another application., NSLocalizedRecoveryOptions=(
+    "Save Anyway",
+    Revert,
+    "Save As\U2026"
+), NSUnderlyingError=0xa1b80aee0 {Error Domain=NSCocoaErrorDomain Code=67000 "This document’s file has been changed by another application." UserInfo={NSLocalizedRecoveryOptions=(
+    "Save Anyway",
+    Revert,
+    "Save As\U2026"
+), NSLocalizedDescription=This document’s file has been changed by another application., NSLocalizedRecoverySuggestion=Click Save Anyway to keep your changes and save the changes made by the other application as a version, or click Revert to keep the changes from the other application and save your changes as a version. You can also click Save As to save your changes to a different file., NSURL=file:///var/folders/jy/nmh43099607fl9kmv2s8gbdh0000gn/T/external-BDC8EAED-C83E-4195-8379-0B99DC25CA15/note.md, NSRecoveryAttempter=<NSDocumentErrorRecoveryAttempter: 0xa1b0b0ff0>, NSLocalizedFailureReason=The file has been changed by another application.}}}) == nil
+✘ Test "confirmed editor resolution can be saved through the native save lifecycle" recorded an issue at ExternalChangeTests.swift:293:9: Expectation failed: try Data(contentsOf: url) == Data("ours".utf8)
+✘ Test "confirmed editor resolution can be saved through the native save lifecycle" recorded an issue at ExternalChangeTests.swift:294:9: Expectation failed: (document.state.baseText → "theirs") == "ours"
+✘ Test "confirmed editor resolution can be saved through the native save lifecycle" failed after 0.020 seconds with 3 issues.
+✘ Suite "External Markdown changes" failed after 0.209 seconds with 3 issues.
+✘ Test run with 2 tests in 1 suite failed after 0.209 seconds with 3 issues.

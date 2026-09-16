@@ -7,6 +7,7 @@ final class DocumentWindowController: NSWindowController {
     let state: DocumentState
     let session: EditorSession
     var workspaceURL: URL?
+    var onConfirmConflict: ((ConflictReview) throws -> Void)?
 
     init(state: DocumentState) {
         self.state = state
@@ -18,13 +19,16 @@ final class DocumentWindowController: NSWindowController {
             defer: false
         )
         window.minSize = NSSize(width: 640, height: 420)
-        window.contentViewController = NSHostingController(rootView: DocumentView(state: state, session: session))
+        super.init(window: window)
+        window.contentViewController = NSHostingController(rootView: DocumentView(
+            state: state, session: session,
+            confirmConflict: { [weak self] review in try self?.onConfirmConflict?(review) }
+        ))
         window.setFrame(
             NSRect(origin: window.frame.origin, size: NSSize(width: 960, height: 720)),
             display: false
         )
         window.center()
-        super.init(window: window)
         session.onNativeAction = { [weak self] action in
             guard let self else { return }
             switch action {

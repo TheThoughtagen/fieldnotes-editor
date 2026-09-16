@@ -1,0 +1,93 @@
+Building for debugging...
+[0/8] Write sources
+[1/8] Write swift-version--1AB21518FC5DEDBE.txt
+[3/5] Emitting module FieldnotesAppTests
+[4/5] Compiling FieldnotesAppTests ExternalChangeTests.swift
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:78:26: error: cannot find 'ConflictReview' in scope
+ 76 |             try document.read(from: Data("theirs".utf8), ofType: type)
+ 77 |             let conflict = try #require(document.state.conflict)
+ 78 |             let review = ConflictReview(conflict: conflict)
+    |                          `- error: cannot find 'ConflictReview' in scope
+ 79 |             review.choose(resolution)
+ 80 |             #expect(document.state.conflict == conflict)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:86:26: error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+ 84 |             #expect(document.state.conflict == conflict)
+ 85 |             review.choose(resolution)
+ 86 |             try document.confirmConflict(review)
+    |                          `- error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+ 87 |             #expect(document.state.conflict == nil)
+ 88 |             #expect(document.state.baseText == "theirs")
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:104:22: error: cannot find 'ConflictReview' in scope
+102 |         document.state.acceptEditorText("ours", selection: .init(anchor: 4, head: 4), kind: .done)
+103 |         try document.read(from: Data("theirs".utf8), ofType: type)
+104 |         let review = ConflictReview(conflict: try #require(document.state.conflict))
+    |                      `- error: cannot find 'ConflictReview' in scope
+105 |         review.choose(.disk)
+106 |         document.state.acceptEditorText("new ours", selection: .init(anchor: 8, head: 8), kind: .done)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:105:24: error: cannot infer contextual base in reference to member 'disk'
+103 |         try document.read(from: Data("theirs".utf8), ofType: type)
+104 |         let review = ConflictReview(conflict: try #require(document.state.conflict))
+105 |         review.choose(.disk)
+    |                        `- error: cannot infer contextual base in reference to member 'disk'
+106 |         document.state.acceptEditorText("new ours", selection: .init(anchor: 8, head: 8), kind: .done)
+107 |         try document.confirmConflict(review)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:107:22: error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+105 |         review.choose(.disk)
+106 |         document.state.acceptEditorText("new ours", selection: .init(anchor: 8, head: 8), kind: .done)
+107 |         try document.confirmConflict(review)
+    |                      `- error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+108 |         #expect(document.state.editorText == "new ours")
+109 |         #expect(document.state.conflict?.ours == "new ours")
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:110:22: error: cannot find 'ConflictReview' in scope
+108 |         #expect(document.state.editorText == "new ours")
+109 |         #expect(document.state.conflict?.ours == "new ours")
+110 |         let second = ConflictReview(conflict: try #require(document.state.conflict))
+    |                      `- error: cannot find 'ConflictReview' in scope
+111 |         second.choose(.editor)
+112 |         try document.read(from: Data("new theirs".utf8), ofType: type)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:111:24: error: cannot infer contextual base in reference to member 'editor'
+109 |         #expect(document.state.conflict?.ours == "new ours")
+110 |         let second = ConflictReview(conflict: try #require(document.state.conflict))
+111 |         second.choose(.editor)
+    |                        `- error: cannot infer contextual base in reference to member 'editor'
+112 |         try document.read(from: Data("new theirs".utf8), ofType: type)
+113 |         try document.confirmConflict(second)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:113:22: error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+111 |         second.choose(.editor)
+112 |         try document.read(from: Data("new theirs".utf8), ofType: type)
+113 |         try document.confirmConflict(second)
+    |                      `- error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+114 |         #expect(document.state.conflict?.theirs == Data("new theirs".utf8))
+115 |     }
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:127:22: error: cannot find 'ConflictReview' in scope
+125 |         #expect(error == nil)
+126 |         #expect(document.state.editorText == "base")
+127 |         let review = ConflictReview(conflict: try #require(document.state.conflict))
+    |                      `- error: cannot find 'ConflictReview' in scope
+128 |         #expect(review.conflict.theirs == nil)
+129 |         review.choose(.editor)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:129:24: error: cannot infer contextual base in reference to member 'editor'
+127 |         let review = ConflictReview(conflict: try #require(document.state.conflict))
+128 |         #expect(review.conflict.theirs == nil)
+129 |         review.choose(.editor)
+    |                        `- error: cannot infer contextual base in reference to member 'editor'
+130 |         try document.confirmConflict(review)
+131 |         #expect(document.state.diskWasDeleted)
+
+/private/tmp/fieldnotes-editor-macos/Tests/FieldnotesAppTests/ExternalChangeTests.swift:130:22: error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+128 |         #expect(review.conflict.theirs == nil)
+129 |         review.choose(.editor)
+130 |         try document.confirmConflict(review)
+    |                      `- error: value of type 'FieldnotesDocument' has no member 'confirmConflict'
+131 |         #expect(document.state.diskWasDeleted)
+132 |         #expect(document.isDocumentEdited)
+error: fatalError
