@@ -83,6 +83,57 @@ test("newer preview wins when the older render resolves last", async () => {
   editor.destroy();
 });
 
+test("active Preview rerenders a newer native snapshot and rejects its stale render", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const { createEditor } = await import("../src/editor.js");
+  const pending: Array<{ source: string; resolve: (value: RenderedDocument) => void }> = [];
+  const render = (source: string) => new Promise<RenderedDocument>(resolve => pending.push({ source, resolve }));
+  const result = (html: string): RenderedDocument => ({ html, normalizedHtml: html, toc: [], frontmatter: {}, diagnostics: [], assets: [], plainText: html, wordCount: 1, readingMinutes: 1 });
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, unknown>) {
+    if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "preview-doc", revision: 0, text: "A", selection: { anchor: 0, head: 0 } });
+    return Promise.resolve({ kind: "ack", documentID: "preview-doc", revision: 1 });
+  } } } } });
+  const editor = createEditor(document.querySelector("#editor")!, { initialDocument: "A", render });
+  try {
+    await expect.poll(() => editor.view.dom.dataset.bridgeState).toBe("ready");
+    editor.setMode("preview");
+    await expect.poll(() => pending.map(item => item.source)).toEqual(["A"]);
+
+    expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "preview-doc", revision: 1, text: "B", selection: { anchor: 0, head: 0 } })).toBe(true);
+    await expect.poll(() => pending.map(item => item.source)).toEqual(["A", "B"]);
+    pending[1]!.resolve(result("<p>new B</p>"));
+    await settle();
+    pending[0]!.resolve(result("<p>stale A</p>"));
+    await settle();
+
+    expect(document.querySelector(".fieldnotes-preview")?.textContent).toBe("new B");
+  } finally {
+    editor.destroy();
+    Object.defineProperty(window, "webkit", { configurable: true, value: undefined });
+  }
+});
+
+test("malformed local fragment is a safe no-op", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const { createEditor } = await import("../src/editor.js");
+  const result: RenderedDocument = { html: '<p><a href="#%GG">broken fragment</a></p>', normalizedHtml: "", toc: [], frontmatter: {}, diagnostics: [], assets: [], plainText: "broken fragment", wordCount: 2, readingMinutes: 1 };
+  const editor = createEditor(document.querySelector("#editor")!, { initialDocument: "ignored", render: async () => result });
+  let reportedError: ErrorEvent | undefined;
+  const captureError = (event: ErrorEvent) => { reportedError = event; event.preventDefault(); };
+  window.addEventListener("error", captureError);
+  try {
+    editor.setMode("preview");
+    await expect.poll(() => document.querySelector<HTMLAnchorElement>('.fieldnotes-preview a')?.href).toContain("#%GG");
+    document.querySelector<HTMLAnchorElement>('.fieldnotes-preview a')!.click();
+    await settle();
+    expect(reportedError).toBeUndefined();
+    expect(document.querySelector(".fieldnotes-preview")?.textContent).toBe("broken fragment");
+  } finally {
+    window.removeEventListener("error", captureError);
+    editor.destroy();
+  }
+});
+
 test("Vim is enabled by default and its adapter is stable across modes", async () => {
   document.body.innerHTML = '<main id="editor"></main>';
   const { createEditor } = await import("../src/editor.js");

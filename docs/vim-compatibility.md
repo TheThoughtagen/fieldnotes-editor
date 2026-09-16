@@ -2,7 +2,7 @@
 
 FIELDNOTES uses Vim bindings by default. Presentation-mode changes preserve the same editor and Vim adapter; toggling Vim itself resets adapter-local mode state.
 
-Matrix v1: 53 command families / 141 executable tokens (42 supported, 3 adapted, 8 unsupported families).
+Matrix v1: 53 command families / 144 executable tokens (42 supported, 3 adapted, 8 unsupported families).
 
 | Command | Classification | Exact behavior |
 | --- | --- | --- |
@@ -48,9 +48,9 @@ Matrix v1: 53 command families / 141 executable tokens (42 supported, 3 adapted,
 | <code>:noh</code> | supported | Clear search highlighting. |
 | <code>:write :w</code> | adapted | After pending edit acknowledgement, request the owning NSDocument save action. |
 | <code>:quit :q</code> | adapted | After pending edit acknowledgement, request window close and preserve the native unsaved-changes prompt. |
-| <code>v</code> | supported | Enter characterwise visual mode. |
-| <code>V</code> | supported | Enter linewise visual mode. |
-| <code>Ctrl-v</code> | supported | Enter blockwise visual mode. |
+| <code>v; vld</code> | supported | Enter characterwise Visual mode; vld on `abcd` leaves `cd`, cursor 0, Normal mode. |
+| <code>V; Vjd</code> | supported | Enter Visual Line mode; Vjd on `one\ntwo\nthree` leaves `three`, cursor 0, Normal mode. |
+| <code>Ctrl-v; Ctrl-v jld</code> | supported | Enter Visual Block mode; Ctrl-v jld on `abc\ndef` leaves `c\nf`, cursor 0, Normal mode. |
 | <code>:! {command}</code> | unsupported | Document unchanged; no native action; a visible unsupported-command diagnostic is shown. |
 | <code>:source :function :let</code> | unsupported | Document unchanged; no native action; a visible unsupported-command diagnostic is shown. |
 | <code>:map :nmap :imap :vmap</code> | unsupported | Document unchanged; no mapping is installed; a visible unsupported-command diagnostic is shown. |

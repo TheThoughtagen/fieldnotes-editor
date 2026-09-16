@@ -116,7 +116,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   root.append(editorHost, preview);
   const presentation = new Compartment(); const vimMode = new Compartment();
   let mode: PresentationMode = "focus", vimEnabled = true, destroyed = false, renderToken = 0, vimState = "normal";
-  let bridge!: NativeBridge; let statusTimer: number | undefined;
+  let bridge!: NativeBridge; let statusTimer: number | undefined; let renderPreview!: () => Promise<void>;
   const publishStatus = (view: EditorView): void => {
     if (destroyed) return;
     if (statusTimer !== undefined) window.clearTimeout(statusTimer);
@@ -127,11 +127,15 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     }, 15);
   };
   const state = EditorState.create({ doc: options.initialDocument ?? "# FIELDNOTES\n\n", extensions: [
+    EditorState.allowMultipleSelections.of(true),
     vimMode.of(vim()), lineNumbers(), highlightSpecialChars(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(), highlightActiveLine(), highlightSelectionMatches(),
     markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(defaultHighlightStyle, { fallback: true }), presentation.of(focusExtension),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, ...lintKeymap, indentWithTab]),
     EditorView.contentAttributes.of({ "aria-label": "Markdown source" }), EditorView.lineWrapping,
-    EditorView.updateListener.of(update => { if (update.docChanged || update.selectionSet) publishStatus(update.view); }),
+    EditorView.updateListener.of(update => {
+      if (update.docChanged && mode === "preview") void renderPreview();
+      if (update.docChanged || update.selectionSet) publishStatus(update.view);
+    }),
   ] });
   const view = new EditorView({ state, parent: editorHost }); bridge = createNativeBridge(view); editorByView.set(view, { bridge }); installNativeExCommands();
   let adapter = getCM(view);
@@ -139,7 +143,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   const attachVimListener = (): void => { adapter?.on("vim-mode-change", onVimModeChange); };
   const detachVimListener = (): void => { adapter?.off("vim-mode-change", onVimModeChange); };
   attachVimListener();
-  const renderPreview = async (): Promise<void> => {
+  renderPreview = async (): Promise<void> => {
     const token = ++renderToken, detached = document.createElement("article");
     try {
       const result = await (options.render ?? renderDocument)(view.state.doc.toString(), { allowRemoteImages: false });
@@ -189,7 +193,8 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
     const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href^="#"]');
     if (!anchor) return;
     event.preventDefault();
-    const id = decodeURIComponent(anchor.hash.slice(1));
+    let id: string;
+    try { id = decodeURIComponent(anchor.hash.slice(1)); } catch { return; }
     if (id) preview.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.scrollIntoView();
   };
   preview.addEventListener("click", onPreviewClick);

@@ -92,8 +92,11 @@ const cases: Case[] = [
   { ...c("native-quit", ":quit", ":quit{Enter}", "one"), classification: "adapted", nativeAction: "quit" },
   { ...c("native-quit", ":q", ":q{Enter}", "one"), classification: "adapted", nativeAction: "quit" },
   { ...c("visual-character", "v", "v", "one"), expectedMode: "visual" },
+  { ...c("visual-character", "vld", "vld", "abcd", "cd", 0, 0), expectedMode: "normal" },
   { ...c("visual-line", "V", "V", "one"), expectedMode: "visual" },
+  { ...c("visual-line", "Vjd", "Vjd", "one\ntwo\nthree", "three", 0, 0), expectedMode: "normal" },
   { ...c("visual-block", "Ctrl-v", "{Control>}v{/Control}", "one"), expectedMode: "visual" },
+  { ...c("visual-block", "Ctrl-v jld", "{Control>}v{/Control}jld", "abc\ndef", "c\nf", 0, 0), expectedMode: "normal" },
 ];
 
 const unsupported: Array<[string, string, string]> = [
@@ -122,9 +125,9 @@ test("every declared matrix row has concrete keyboard fixtures", () => {
   for (const [row, tokens] of Object.entries(tokenManifest)) {
     expect(byRow.get(row)?.map(fixture => fixture.token).sort(), row).toEqual([...tokens].sort());
   }
-  expect(cases).toHaveLength(141);
+  expect(cases).toHaveLength(144);
   expect(Object.fromEntries(["supported", "adapted", "unsupported"].map(classification => [classification, cases.filter(fixture => fixture.classification === classification).length])))
-    .toEqual({ supported: 112, adapted: 6, unsupported: 23 });
+    .toEqual({ supported: 115, adapted: 6, unsupported: 23 });
 });
 
 test.each(cases)("$classification $row $token executes its declared keyboard contract", async fixture => {
