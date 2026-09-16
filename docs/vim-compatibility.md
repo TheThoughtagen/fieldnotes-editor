@@ -2,7 +2,7 @@
 
 FIELDNOTES uses Vim bindings by default. Presentation-mode changes preserve the same editor and Vim adapter; toggling Vim itself resets adapter-local mode state.
 
-Matrix v1: 53 command families / 144 executable tokens (42 supported, 3 adapted, 8 unsupported families).
+Matrix v1: 54 command families / 146 executable tokens (43 supported, 3 adapted, 8 unsupported families).
 
 | Command | Classification | Exact behavior |
 | --- | --- | --- |
@@ -37,6 +37,7 @@ Matrix v1: 53 command families / 144 executable tokens (42 supported, 3 adapted,
 | <code>~</code> | supported | Toggle character case. |
 | <code>&lt;&lt; &gt;&gt; =</code> | supported | Indent, outdent, or format the selected lines. |
 | <code>"a "_ "+ "*</code> | supported | Use named, black-hole, and platform registers where the host permits clipboard access. |
+| <code>p P</code> | supported | After yl$, p on `abc` leaves `abca` at cursor 3; P leaves `abac` at cursor 3. |
 | <code>m{letter} '{letter} `{letter}</code> | supported | Set and jump to document-local marks. |
 | <code>q{register} @ {register} @@</code> | supported | Record and replay keyboard macros in the active document. |
 | <code>/pattern ?pattern</code> | supported | Search forward or backward. |

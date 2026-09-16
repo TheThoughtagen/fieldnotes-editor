@@ -5,6 +5,8 @@ import { generateVimCompatibility, validateVimCompatibility } from "./generate-v
 
 const root = new URL("../", import.meta.url);
 const matrix = JSON.parse(await readFile(new URL("vim-compatibility.json", root), "utf8"));
+const tokenManifest = JSON.parse(await readFile(new URL("vim-token-manifest.json", root), "utf8"));
+const requiredSpecTokens = { put: ["p", "P"] };
 
 test("matrix is closed, complete, and uniquely keyed", () => {
   const summary = validateVimCompatibility(matrix);
@@ -20,4 +22,10 @@ test("generated documentation is byte-for-byte deterministic", async () => {
   assert.ok(expected.endsWith("\n"));
   assert.ok(!expected.endsWith("\n\n"));
   assert.doesNotMatch(expected, /generated at|timestamp/iu);
+});
+
+test("hardcoded Vim spec baseline includes required put commands", () => {
+  for (const [row, tokens] of Object.entries(requiredSpecTokens)) {
+    assert.deepEqual(tokenManifest[row], tokens);
+  }
 });

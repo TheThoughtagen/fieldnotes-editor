@@ -33,6 +33,7 @@
     {"id":"edits-case","notation":"~","classification":"supported","outcome":"Toggle character case."},
     {"id":"edits-indent","notation":"<< >> =","classification":"supported","outcome":"Indent, outdent, or format the selected lines."},
     {"id":"registers","notation":"\"a \"_ \"+ \"*","classification":"supported","outcome":"Use named, black-hole, and platform registers where the host permits clipboard access."},
+    {"id":"put","notation":"p P","classification":"supported","outcome":"After yl$, p on `abc` leaves `abca` at cursor 3; P leaves `abac` at cursor 3."},
     {"id":"marks","notation":"m{letter} '{letter} `{letter}","classification":"supported","outcome":"Set and jump to document-local marks."},
     {"id":"macros","notation":"q{register} @ {register} @@","classification":"supported","outcome":"Record and replay keyboard macros in the active document."},
     {"id":"search-pattern","notation":"/pattern ?pattern","classification":"supported","outcome":"Search forward or backward."},

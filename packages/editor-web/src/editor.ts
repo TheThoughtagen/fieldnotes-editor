@@ -77,13 +77,20 @@ function installNativeExCommands(): void {
   Vim.mapCommand("at", "motion", "fieldnotesAroundTag", {}, {});
 }
 
-function focusDecorations(view: EditorView): DecorationSet {
+function findFrontmatterEnd(state: EditorState): number | undefined {
+  if (state.doc.lines < 3 || state.doc.line(1).text !== "---") return undefined;
+  for (let lineNumber = 3; lineNumber <= state.doc.lines; lineNumber += 1) {
+    const line = state.doc.line(lineNumber);
+    if (line.text === "---") return line.to;
+  }
+  return undefined;
+}
+
+function focusDecorations(view: EditorView, frontmatterEnd: number | undefined): DecorationSet {
   const ranges: ReturnType<Decoration["range"]>[] = [];
   const cursor = view.state.selection.main.head;
-  const document = view.state.doc.toString();
-  const frontmatter = /^---\n[\s\S]*?\n---(?=\n|$)/u.exec(document);
-  if (frontmatter) {
-    ranges.push(Decoration.mark({ class: cursor <= frontmatter[0].length ? "fn-syntax-active fn-frontmatter" : "fn-syntax-muted fn-frontmatter" }).range(0, frontmatter[0].length));
+  if (frontmatterEnd !== undefined) {
+    ranges.push(Decoration.mark({ class: cursor <= frontmatterEnd ? "fn-syntax-active fn-frontmatter" : "fn-syntax-muted fn-frontmatter" }).range(0, frontmatterEnd));
   }
   for (const visible of view.visibleRanges) syntaxTree(view.state).iterate({
     from: visible.from, to: visible.to,
@@ -102,11 +109,22 @@ function focusDecorations(view: EditorView): DecorationSet {
 }
 const focusPlugin = ViewPlugin.fromClass(class {
   decorations: DecorationSet;
-  constructor(view: EditorView) { this.decorations = focusDecorations(view); }
-  update(update: ViewUpdate) { if (update.docChanged || update.selectionSet || update.viewportChanged) this.decorations = focusDecorations(update.view); }
+  frontmatterEnd: number | undefined;
+  constructor(view: EditorView) {
+    this.frontmatterEnd = findFrontmatterEnd(view.state);
+    this.decorations = focusDecorations(view, this.frontmatterEnd);
+  }
+  update(update: ViewUpdate) {
+    if (update.docChanged) this.frontmatterEnd = findFrontmatterEnd(update.state);
+    if (update.docChanged || update.selectionSet || update.viewportChanged) this.decorations = focusDecorations(update.view, this.frontmatterEnd);
+  }
 }, { decorations: value => value.decorations });
 const focusExtension: Extension = [focusPlugin, EditorView.editorAttributes.of({ class: "fieldnotes-focus" })];
 const sourceExtension: Extension = EditorView.editorAttributes.of({ class: "fieldnotes-source" });
+const countWords = (text: string): number => {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/u).length : 0;
+};
 
 export function createEditor(root: HTMLElement, options: EditorOptions = {}): EditorController {
   root.replaceChildren(); root.dataset.booted = "true"; root.removeAttribute("role");
@@ -115,25 +133,31 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   preview.contentEditable = "false"; preview.setAttribute("aria-label", "Rendered Markdown preview");
   root.append(editorHost, preview);
   const presentation = new Compartment(); const vimMode = new Compartment();
+  const initialDocument = options.initialDocument ?? "# FIELDNOTES\n\n";
   let mode: PresentationMode = "focus", vimEnabled = true, destroyed = false, renderToken = 0, vimState = "normal";
+  let cachedWordCount = countWords(initialDocument);
+  const renderStages = new Set<HTMLElement>();
   let bridge!: NativeBridge; let statusTimer: number | undefined; let renderPreview!: () => Promise<void>;
   const publishStatus = (view: EditorView): void => {
     if (destroyed) return;
     if (statusTimer !== undefined) window.clearTimeout(statusTimer);
     statusTimer = window.setTimeout(() => {
-      const position = view.state.selection.main.head, line = view.state.doc.lineAt(position), text = view.state.doc.toString().trim();
-      const status: EditorStatus = { presentationMode: mode, vimMode: vimEnabled ? vimState : "off", line: line.number, column: position - line.from + 1, wordCount: text ? text.split(/\s+/u).length : 0 };
+      const position = view.state.selection.main.head, line = view.state.doc.lineAt(position);
+      const status: EditorStatus = { presentationMode: mode, vimMode: vimEnabled ? vimState : "off", line: line.number, column: position - line.from + 1, wordCount: cachedWordCount };
       options.onStatus?.(status); bridge?.postStatus(status);
     }, 15);
   };
-  const state = EditorState.create({ doc: options.initialDocument ?? "# FIELDNOTES\n\n", extensions: [
+  const state = EditorState.create({ doc: initialDocument, extensions: [
     EditorState.allowMultipleSelections.of(true),
     vimMode.of(vim()), lineNumbers(), highlightSpecialChars(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(), highlightActiveLine(), highlightSelectionMatches(),
     markdown({ base: markdownLanguage, codeLanguages: [LanguageDescription.of({ name: "HTML", extensions: ["html"], load: async () => html() })] }), syntaxHighlighting(defaultHighlightStyle, { fallback: true }), presentation.of(focusExtension),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, ...lintKeymap, indentWithTab]),
     EditorView.contentAttributes.of({ "aria-label": "Markdown source" }), EditorView.lineWrapping,
     EditorView.updateListener.of(update => {
-      if (update.docChanged && mode === "preview") void renderPreview();
+      if (update.docChanged) {
+        cachedWordCount = countWords(update.state.doc.toString());
+        if (mode === "preview") void renderPreview();
+      }
       if (update.docChanged || update.selectionSet) publishStatus(update.view);
     }),
   ] });
@@ -157,9 +181,11 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
       detached.setAttribute("aria-hidden", "true");
       detached.inert = true;
       document.body.append(detached);
+      renderStages.add(detached);
       try {
         await (options.hydrate ?? hydrateMermaid)(detached);
       } finally {
+        renderStages.delete(detached);
         detached.remove();
       }
       if (!destroyed && token === renderToken) preview.replaceChildren(...detached.childNodes);
@@ -200,7 +226,7 @@ export function createEditor(root: HTMLElement, options: EditorOptions = {}): Ed
   preview.addEventListener("click", onPreviewClick);
   window.addEventListener("keydown", onKeyDown); root.dataset.mode = mode; publishStatus(view);
   const controller: EditorController = { view, get mode() { return mode; }, get vimEnabled() { return vimEnabled; }, setMode, cycleMode, setVimEnabled,
-    destroy() { if (destroyed) return; destroyed = true; renderToken += 1; window.removeEventListener("keydown", onKeyDown); preview.removeEventListener("click", onPreviewClick); if (statusTimer !== undefined) window.clearTimeout(statusTimer); detachVimListener(); editorByView.delete(view); bridge.destroy(); view.destroy(); root.replaceChildren(); },
+    destroy() { if (destroyed) return; destroyed = true; renderToken += 1; for (const stage of renderStages) stage.remove(); renderStages.clear(); window.removeEventListener("keydown", onKeyDown); preview.removeEventListener("click", onPreviewClick); if (statusTimer !== undefined) window.clearTimeout(statusTimer); detachVimListener(); editorByView.delete(view); bridge.destroy(); view.destroy(); root.replaceChildren(); },
   };
   const snapshotAPI = window.fieldnotes;
   Object.defineProperty(window, "fieldnotes", { configurable: true, enumerable: false, writable: false, value: Object.freeze({

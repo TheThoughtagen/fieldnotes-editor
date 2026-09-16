@@ -14,13 +14,28 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
         didReceive message: WKScriptMessage,
         replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void
     ) {
+        handle(body: message.body, isMainFrame: message.frameInfo.isMainFrame, replyHandler: replyHandler)
+    }
+
+    func handle(
+        body: Any,
+        isMainFrame: Bool,
+        replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void
+    ) {
         guard isRegistered, let session else {
             replyHandler(nil, "editor session unavailable")
             return
         }
         do {
-            let request = try EditorBridgeRequest.validate(body: message.body, isMainFrame: message.frameInfo.isMainFrame)
-            replyHandler(session.receive(request), nil)
+            let request = try EditorBridgeRequest.validate(body: body, isMainFrame: isMainFrame)
+            let response = session.prepareResponse(to: request)
+            replyHandler(response.reply, nil)
+            if let action = response.deferredAction {
+                Task { @MainActor [session] in
+                    await Task.yield()
+                    session.perform(action)
+                }
+            }
         } catch {
             replyHandler(nil, "invalid editor message")
         }

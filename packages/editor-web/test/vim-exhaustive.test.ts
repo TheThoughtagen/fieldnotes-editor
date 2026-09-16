@@ -75,6 +75,7 @@ const cases: Case[] = [
 
   c("registers", "\"a", "\"ayw", "one two", "one two"), c("registers", "\"_", "\"_dw", "one two", "two"),
   c("registers", "\"+", "\"+yw", "one two", "one two"), c("registers", "\"*", "\"*yw", "one two", "one two"),
+  c("put", "p", "yl$p", "abc", "abca", 0, 3), c("put", "P", "yl$P", "abc", "abac", 0, 3),
   c("marks", "m{letter}", "ma", "one two", "one two"), c("marks", "'{letter}", "ma$'a", "one two", "one two", 0, 0),
   c("marks", "`{letter}", "lma$`a", "one two", "one two", 0, 1),
   c("macros", "q{register}", "qaix{Escape}q", "one", "xone"), c("macros", "@{register}", "qaix{Escape}q@a", "one", "xxone"),
@@ -125,9 +126,9 @@ test("every declared matrix row has concrete keyboard fixtures", () => {
   for (const [row, tokens] of Object.entries(tokenManifest)) {
     expect(byRow.get(row)?.map(fixture => fixture.token).sort(), row).toEqual([...tokens].sort());
   }
-  expect(cases).toHaveLength(144);
+  expect(cases).toHaveLength(146);
   expect(Object.fromEntries(["supported", "adapted", "unsupported"].map(classification => [classification, cases.filter(fixture => fixture.classification === classification).length])))
-    .toEqual({ supported: 115, adapted: 6, unsupported: 23 });
+    .toEqual({ supported: 117, adapted: 6, unsupported: 23 });
 });
 
 test.each(cases)("$classification $row $token executes its declared keyboard contract", async fixture => {

@@ -24,6 +24,70 @@ struct EditorModesTests {
         }
     }
 
+    @Test("preparing an action reply never performs its side effect eagerly")
+    func actionIsNotEager() throws {
+        let state = try DocumentState(data: Data("one".utf8))
+        let session = EditorSession(state: state, documentID: "doc")
+        var events: [String] = []
+        session.onNativeAction = { _ in events.append("action") }
+        let source = #"{"kind":"action","documentID":"doc","baseRevision":0,"revision":0,"payload":{"action":"save"}}"#
+
+        let reply = session.receive(try EditorBridgeRequest.decode(body: JSONSerialization.jsonObject(with: Data(source.utf8))))
+        events.append("reply")
+
+        #expect(reply["kind"] as? String == "ack")
+        #expect(events == ["reply"])
+    }
+
+    @Test("reply completes before deferred quit tears down its target")
+    func replyBeforeQuit() async throws {
+        let session = EditorSession(state: try DocumentState(data: Data("one".utf8)), documentID: "doc")
+        let handler = WeakEditorReplyHandler(session: session)
+        let body = try JSONSerialization.jsonObject(with: Data(#"{"kind":"action","documentID":"doc","baseRevision":0,"revision":0,"payload":{"action":"quit"}}"#.utf8))
+        var events: [String] = []
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            session.onNativeAction = { action in
+                events.append("action:\(action.rawValue)")
+                handler.markRemoved()
+                continuation.resume()
+            }
+            handler.handle(body: body, isMainFrame: true) { reply, error in
+                events.append("reply")
+                #expect((reply as? [String: Any])?["kind"] as? String == "ack")
+                #expect(error == nil)
+            }
+            #expect(events == ["reply"])
+        }
+
+        #expect(events == ["reply", "action:quit"])
+        #expect(!handler.isRegistered)
+    }
+
+    @Test("invalid wrong-document and stale actions never schedule native effects")
+    func rejectedActionsHaveNoEffect() async throws {
+        let session = EditorSession(state: try DocumentState(data: Data("one".utf8)), documentID: "doc")
+        let handler = WeakEditorReplyHandler(session: session)
+        var actions: [NativeEditorAction] = []
+        var replyCount = 0
+        session.onNativeAction = { actions.append($0) }
+        let sources = [
+            #"{"kind":"action","documentID":"doc","baseRevision":0,"revision":0,"payload":{"action":"save","path":"/tmp/no"}}"#,
+            #"{"kind":"action","documentID":"other","baseRevision":0,"revision":0,"payload":{"action":"save"}}"#,
+            #"{"kind":"action","documentID":"doc","baseRevision":1,"revision":1,"payload":{"action":"quit"}}"#,
+        ]
+
+        for source in sources {
+            let body = try JSONSerialization.jsonObject(with: Data(source.utf8))
+            handler.handle(body: body, isMainFrame: true) { _, _ in replyCount += 1 }
+        }
+        await Task.yield()
+        await Task.yield()
+
+        #expect(replyCount == sources.count)
+        #expect(actions.isEmpty)
+    }
+
     @Test("status messages validate bounded enum and positive coordinates")
     func statusEnvelope() throws {
         let source = #"{"kind":"status","documentID":"doc","baseRevision":0,"revision":0,"payload":{"presentationMode":"preview","vimMode":"normal","line":1,"column":1,"wordCount":7}}"#

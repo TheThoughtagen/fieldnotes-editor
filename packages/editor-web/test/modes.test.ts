@@ -134,6 +134,37 @@ test("malformed local fragment is a safe no-op", async () => {
   }
 });
 
+test.each(["resolve", "reject"] as const)("destroy synchronously removes a pending hydration stage before late $0", async outcome => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const { createEditor } = await import("../src/editor.js");
+  const result: RenderedDocument = { html: "<p>pending</p>", normalizedHtml: "", toc: [], frontmatter: {}, diagnostics: [], assets: [], plainText: "pending", wordCount: 1, readingMinutes: 1 };
+  let finishHydration!: () => void;
+  const hydrate = () => new Promise<[]>((resolve, reject) => {
+    finishHydration = () => outcome === "resolve" ? resolve([]) : reject(new Error("late hydration"));
+  });
+  const editor = createEditor(document.querySelector("#editor")!, { initialDocument: "pending", render: async () => result, hydrate });
+  let reportedError: ErrorEvent | undefined;
+  const captureError = (event: ErrorEvent) => { reportedError = event; event.preventDefault(); };
+  window.addEventListener("error", captureError);
+  try {
+    editor.setMode("preview");
+    await expect.poll(() => document.querySelectorAll(".fieldnotes-render-stage").length).toBe(1);
+    editor.destroy();
+    const stagesImmediatelyAfterDestroy = document.querySelectorAll(".fieldnotes-render-stage").length;
+    finishHydration();
+    await settle();
+
+    expect(stagesImmediatelyAfterDestroy).toBe(0);
+    expect(document.querySelectorAll(".fieldnotes-render-stage")).toHaveLength(0);
+    expect(document.querySelector("#editor")?.childElementCount).toBe(0);
+    expect(reportedError).toBeUndefined();
+  } finally {
+    window.removeEventListener("error", captureError);
+    finishHydration?.();
+    editor.destroy();
+  }
+});
+
 test("Vim is enabled by default and its adapter is stable across modes", async () => {
   document.body.innerHTML = '<main id="editor"></main>';
   const { createEditor } = await import("../src/editor.js");
@@ -181,6 +212,9 @@ test("status reports mode, cursor and document metrics", async () => {
   editor.view.dispatch({ selection: { anchor: 8 } });
   await settle();
   expect(statuses.at(-1)).toMatchObject({ presentationMode: "focus", line: 2, column: 1, wordCount: 3 });
+  editor.view.dispatch({ changes: { from: editor.view.state.doc.length, insert: "\nfour" } });
+  await settle();
+  expect(statuses.at(-1)).toMatchObject({ wordCount: 4 });
   editor.destroy();
 });
 
@@ -198,4 +232,28 @@ test("Focus recognizes exact CRLF frontmatter and reveals enclosing Markdown syn
   const invalid = createEditor(document.querySelector("#editor")!, { initialDocument: "---oops\ntitle: x\n---" });
   expect(document.querySelector(".fn-frontmatter")).toBeNull();
   invalid.destroy();
+});
+
+test("Focus reuses its frontmatter extent on selection-only updates", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const { createEditor } = await import("../src/editor.js");
+  const source = `---\ntitle: large\n---\n${"content line\n".repeat(20_000)}`;
+  const editor = createEditor(document.querySelector("#editor")!, { initialDocument: source });
+  const documentText = editor.view.state.doc;
+  const prototype = Object.getPrototypeOf(documentText) as { toString(): string };
+  const originalToString = prototype.toString;
+  let fullMaterializations = 0;
+  prototype.toString = function(this: typeof documentText): string {
+    if (this === documentText) fullMaterializations += 1;
+    return originalToString.call(this);
+  };
+  try {
+    editor.view.dispatch({ selection: { anchor: source.length - 2 } });
+    await settle();
+    expect(editor.view.state.doc).toBe(documentText);
+    expect(fullMaterializations).toBe(0);
+  } finally {
+    prototype.toString = originalToString;
+    editor.destroy();
+  }
 });

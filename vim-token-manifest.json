@@ -30,6 +30,7 @@
   "edits-case": ["~"],
   "edits-indent": ["<<", ">>", "="],
   "registers": ["\"a", "\"_", "\"+", "\"*"],
+  "put": ["p", "P"],
   "marks": ["m{letter}", "'{letter}", "`{letter}"],
   "macros": ["q{register}", "@{register}", "@@"],
   "search-pattern": ["/pattern", "?pattern"],
