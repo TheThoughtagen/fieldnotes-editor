@@ -21,33 +21,49 @@ function deferred<T>() {
 }
 
 test("image replies are rejected after a newer context and allow only the first-save transition", async () => {
-  const image = deferred<unknown>();
+  const image = deferred<unknown>(), imageRequest = deferred<Record<string, unknown>>();
   const context = { generation: 1, workspaceName: "notes", documentName: "note.md", assetPolicy: "workspace" as const, allowRemoteImages: false, mode: null, line: null, column: null, diagnostics: [], schema: null };
   Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, unknown>) {
     if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "doc", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: context });
-    if (message.kind === "imageImport") return image.promise;
+    if (message.kind === "imageImport") { imageRequest.resolve(message); return image.promise; }
     return Promise.resolve({ kind: "ack", documentID: "doc", revision: 0 });
   } } } } });
   const view = editor(""), bridge = createNativeBridge(view); await bridge.ready;
   const pending = bridge.importImage({ filename: "a.png", mimeType: "image/png", dataBase64: "AA==", altText: "A", linkInPlace: false });
+  expect((await imageRequest.promise).payload).toMatchObject({ generation: 1 });
   expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "doc", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: { ...context, generation: 2 } })).toBe(true);
   image.resolve({ kind: "imageImported", documentID: "doc", revision: 0, generation: 1, path: "images/a.png", altText: "A" });
   await expect(pending).rejects.toThrow("Stale image import response");
   bridge.destroy(); view.destroy();
 
-  const firstSave = deferred<unknown>();
+  const firstSave = deferred<unknown>(), firstSaveRequest = deferred<Record<string, unknown>>();
   const unsaved = { ...context, documentName: null };
   Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, unknown>) {
     if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "new", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: unsaved });
-    if (message.kind === "imageImport") return firstSave.promise;
+    if (message.kind === "imageImport") { firstSaveRequest.resolve(message); return firstSave.promise; }
     return Promise.resolve({ kind: "ack", documentID: "new", revision: 0 });
   } } } } });
   const newView = editor(""), newBridge = createNativeBridge(newView); await newBridge.ready;
   const saved = newBridge.importImage({ filename: "a.png", mimeType: "image/png", dataBase64: "AA==", altText: "A", linkInPlace: false });
+  expect((await firstSaveRequest.promise).payload).toMatchObject({ generation: 1 });
   expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "new", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: { ...unsaved, documentName: "note.md", generation: 2 } })).toBe(true);
   firstSave.resolve({ kind: "imageImported", documentID: "new", revision: 0, generation: 2, path: "images/a.png", altText: "A" });
   await expect(saved).resolves.toEqual({ path: "images/a.png", altText: "A" });
   newBridge.destroy(); newView.destroy();
+
+  const replyFirst = deferred<unknown>(), replyFirstRequest = deferred<Record<string, unknown>>();
+  Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { native: { postMessage(message: Record<string, unknown>) {
+    if (message.kind === "ready") return Promise.resolve({ kind: "snapshot", documentID: "reply-first", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: unsaved });
+    if (message.kind === "imageImport") { replyFirstRequest.resolve(message); return replyFirst.promise; }
+    return Promise.resolve({ kind: "ack", documentID: "reply-first", revision: 0 });
+  } } } } });
+  const replyFirstView = editor(""), replyFirstBridge = createNativeBridge(replyFirstView); await replyFirstBridge.ready;
+  const replyFirstResult = replyFirstBridge.importImage({ filename: "a.png", mimeType: "image/png", dataBase64: "AA==", altText: "A", linkInPlace: false });
+  expect((await replyFirstRequest.promise).payload).toMatchObject({ generation: 1 });
+  replyFirst.resolve({ kind: "imageImported", documentID: "reply-first", revision: 0, generation: 2, path: "images/a.png", altText: "A" });
+  await expect(replyFirstResult).resolves.toEqual({ path: "images/a.png", altText: "A" });
+  expect(window.fieldnotes.applyNativeSnapshot({ kind: "snapshot", documentID: "reply-first", revision: 0, text: "", selection: { anchor: 0, head: 0 }, openContext: { ...unsaved, documentName: "note.md", generation: 2 } })).toBe(true);
+  replyFirstBridge.destroy(); replyFirstView.destroy();
 });
 
 test("handler is absent and the exported global is narrow and frozen", () => {

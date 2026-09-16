@@ -110,3 +110,18 @@ Implemented native-scoped local image loading, coordinated image imports, explic
 - Markdown image interpretation strips angle delimiters, resolves Markdown escapes, and supplies the image alt label for collapsed and shortcut references while retaining syntax-tree source ranges.
 - Import replies must match the browser's current context. The sole exception remains an unsaved request whose reply and delivered snapshot both make the authorized first-save `N → N+1` transition.
 - Collapsed pending positions map as one point and replacement ranges use inward boundary association, so intervening typing is preserved. Browser file reading is capped before `arrayBuffer()` allocation and reports excess input visibly.
+
+## Review remediation round 3
+
+### RED and fix
+
+- The final quality re-review reproduced a stopped `WKURLSchemeTask` receiving three callbacks when stop occurred after its detached reader returned but before the queued MainActor completion ran. The worker had snapshotted `Task.isCancelled` too early.
+- MainActor completion now removes the current worker handle and checks that handle's live cancellation state immediately before any WebKit callback. It always releases the slot and pumps the queue, including cancellation.
+- The first-save bridge regression now waits for and asserts the generation-1 import request before applying generation 2. Separate cases prove snapshot-before-reply and reply-before-snapshot transitions; the newer saved-context rejection is sequenced the same way.
+
+### GREEN evidence
+
+- `swift test --filter ImageImporterTests`: 23/23 passed. The deterministic post-read/pre-delivery stop test receives zero callbacks for the stopped task and proves the queued ninth request still completes with all three expected callbacks.
+- `npx vitest run test/bridge.test.ts`: 25/25 passed.
+- Editor workspace `npm run typecheck`: passed.
+- `git diff --check`: passed.

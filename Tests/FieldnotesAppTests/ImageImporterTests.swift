@@ -9,11 +9,12 @@ private final class TestSchemeTask: NSObject, WKURLSchemeTask {
     let request: URLRequest
     private(set) var finished = false
     private(set) var failed = false
+    private(set) var callbackCount = 0
     init(_ url: URL) { request = URLRequest(url: url) }
-    func didReceive(_ response: URLResponse) {}
-    func didReceive(_ data: Data) {}
-    func didFinish() { finished = true }
-    func didFailWithError(_ error: any Error) { failed = true }
+    func didReceive(_ response: URLResponse) { callbackCount += 1 }
+    func didReceive(_ data: Data) { callbackCount += 1 }
+    func didFinish() { callbackCount += 1; finished = true }
+    func didFailWithError(_ error: any Error) { callbackCount += 1; failed = true }
 }
 
 private final class ResourceReadTracker: @unchecked Sendable {
@@ -31,6 +32,12 @@ private final class ResourceReadTracker: @unchecked Sendable {
     func release() { lock.withLock { released = true } }
     func snapshot() -> (active: Int, maximum: Int, starts: Int) { lock.withLock { (active, maximum, starts) } }
     private static let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+}
+
+private final class ImmediateReadTracker: @unchecked Sendable {
+    private let lock = NSLock(); private var count = 0
+    func read() -> Data { lock.withLock { count += 1 }; return Data([1]) }
+    var returned: Int { lock.withLock { count } }
 }
 
 @Suite struct ImageImporterTests {
@@ -210,6 +217,25 @@ private final class ResourceReadTracker: @unchecked Sendable {
         while tasks.dropFirst().contains(where: { !$0.finished && !$0.failed }) { await Task.yield() }
         #expect(tasks.dropFirst().allSatisfy { $0.finished })
         #expect(tasks.allSatisfy { !$0.failed })
+    }
+
+    @Test @MainActor func stoppedResourceAfterReadBeforeActorDeliveryGetsNoCallbacksAndQueueProgresses() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(base64Encoded: Self.pngBase64)?.write(to: root.appendingPathComponent("a.png"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tracker = ImmediateReadTracker()
+        let handler = ResourceSchemeHandler(resolver: ResourceResolver { ResourceScope(generation: 1, allowedRoot: root) }) { _ in tracker.read() }
+        let url = try #require(URL(string: "fieldnotes-resource://1/resource?path=a.png"))
+        let tasks = (0..<9).map { _ in TestSchemeTask(url) }, webView = WKWebView()
+        tasks.forEach { handler.webView(webView, start: $0) }
+        while tracker.returned < 8 { usleep(1_000) }
+
+        handler.webView(webView, stop: tasks[0])
+        while !tasks[8].finished { await Task.yield() }
+
+        #expect(tasks[0].callbackCount == 0)
+        #expect(tasks[8].callbackCount == 3)
     }
 
     @Test @MainActor func sessionScopesResourcesToActiveDocumentPolicyAndConfigurationRegistersOnlyCustomScheme() throws {

@@ -106,15 +106,14 @@ private final class SchemeTaskBox: @unchecked Sendable {
             let reader = reader
             workers[item.identifier] = Task.detached { [weak self] in
                 let result = Result { try reader(item.authorized) }
-                let cancelled = Task.isCancelled
-                await self?.finish(item, result: result, cancelled: cancelled)
+                await self?.finish(item, result: result)
             }
         }
     }
 
-    private func finish(_ item: Pending, result: Result<Data, Error>, cancelled: Bool) {
-        guard workers.removeValue(forKey: item.identifier) != nil else { return }
-        if !cancelled {
+    private func finish(_ item: Pending, result: Result<Data, Error>) {
+        guard let worker = workers.removeValue(forKey: item.identifier) else { return }
+        if !worker.isCancelled {
             switch result {
             case .success(let data):
                 let response = URLResponse(url: item.requestURL, mimeType: item.authorized.mimeType, expectedContentLength: data.count, textEncodingName: nil)
