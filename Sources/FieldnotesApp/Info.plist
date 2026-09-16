@@ -8,6 +8,8 @@
   <string>FIELDNOTES</string>
   <key>CFBundleExecutable</key>
   <string>FIELDNOTESApp</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>com.thethoughtagen.fieldnotes</string>
   <key>CFBundleInfoDictionaryVersion</key>

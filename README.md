@@ -8,7 +8,11 @@ FIELDNOTES is a local macOS 14 (Sonoma) or newer Markdown editor for Apple Silic
 
 ## Install and open
 
-After an app release is published:
+Unsigned previews are distributed separately from signed app releases. Download the `FIELDNOTES-X.Y.Z-unsigned-preview-universal.dmg` and matching `.sha256` from a preview release, when available, or the **FIELDNOTES-unsigned-preview-universal** artifact of a successful App CI run. CI artifacts require a GitHub login. Verify the download with `shasum -a 256 -c FIELDNOTES-X.Y.Z-unsigned-preview-universal.sha256`, open the DMG, and drag FIELDNOTES into Applications.
+
+Previews are **not Developer ID signed or notarized**. macOS may block them. If you trust the download, attempt to open the copied app, then use **System Settings → Privacy & Security → Open Anyway** and follow the prompts ([Apple’s instructions](https://support.apple.com/en-us/102445)). Do not disable Gatekeeper globally. Previews support macOS 14+ on Apple Silicon and Intel and do not install through Homebrew.
+
+Homebrew installation becomes available after a signed, notarized app release and its reviewed cask update are published:
 
 ```sh
 brew tap TheThoughtagen/tap
@@ -18,7 +22,7 @@ fieldnotes notes/post.md --schema schema.json --mode source --line 12 --column 3
 fieldnotes ./notes
 ```
 
-Alternatively download the release DMG, drag FIELDNOTES into Applications, and run `/Applications/FIELDNOTES.app/Contents/Resources/bin/fieldnotes`. That wrapper locates the native CLI inside the same app, including through a Homebrew symlink. Opening the same canonical file, including through a symlink, reuses its document window.
+For signed releases, alternatively download the release DMG, drag FIELDNOTES into Applications, and run `/Applications/FIELDNOTES.app/Contents/Resources/bin/fieldnotes`. That wrapper locates the native CLI inside the same app, including through a Homebrew symlink. Opening the same canonical file, including through a symlink, reuses its document window.
 
 From Neovim, `:!fieldnotes %:p --mode preview` opens the current file. Lua can preserve argument boundaries: `vim.system({'fieldnotes', vim.api.nvim_buf_get_name(0), '--mode', 'source', '--line', tostring(vim.api.nvim_win_get_cursor(0)[1])})`.
 
@@ -60,7 +64,18 @@ scripts/sign-and-package.sh --verify-unsigned
 git diff --check
 ```
 
-`bundle-app.sh debug` builds for the host. Release builds compile each architecture separately, verify macOS 14 deployment targets, and merge the app and native CLI into universal binaries. `--verify-unsigned` checks the local ad-hoc signature, universal architectures, assets, CLI help, and absence of the integration controller; it does not claim Developer ID signing or notarization.
+The committed icon master is `packaging/AppIcon.png` (1024 × 1024 PNG). Rebuild its macOS icon family with `scripts/build-app-icon.sh` (or supply another 1024 × 1024 PNG as the first argument); the script uses macOS `sips` and `iconutil` and produces `packaging/AppIcon.icns`.
+
+To create an unsigned preview locally:
+
+```sh
+APP_VERSION=0.1.0 scripts/bundle-app.sh release
+APP_VERSION=0.1.0 scripts/package-unsigned-preview.sh
+```
+
+The packager requires the requested version to match both bundle version fields, verifies universal binaries and local ad-hoc signatures, and writes `build/FIELDNOTES-0.1.0-unsigned-preview-universal.dmg` and `.sha256`. It includes an Applications shortcut and installation instructions. App CI produces these same preview artifacts without signing credentials; it does not publish a GitHub release or a Homebrew cask. The signed release workflow remains separate and requires all credentials below.
+
+`bundle-app.sh debug` builds for the host. `APP_VERSION` defaults to the source plist's short version and sets both bundle version fields before signing. Release builds compile each architecture separately, verify macOS 14 deployment targets, and merge the app and native CLI into universal binaries. `--verify-unsigned` checks the local ad-hoc signature, universal architectures, assets, CLI help, and absence of the integration controller; it does not claim Developer ID signing or notarization.
 
 The app integration suite requires a logged-in macOS GUI session. Its runner builds with `FIELDNOTES_INTEGRATION` in a separate scratch directory, copies an owned temporary app, launches the bundled native CLI, and inspects the real persistent WK/CodeMirror state and native document. Plain `swift test` skips that suite unless `FIELDNOTES_INTEGRATION_APP` points to an instrumented bundle. Browser tests exercise every exported renderer conformance fixture and final sanitized Mermaid SVG. Native tests show and cancel the actual save panel; for accepted first save, they supply the chosen location and exercise the production authorization, NSDocument Save As, deferred image insertion, and resource-generation transition. The remote macOS Save button itself requires manual UI verification; it is not claimed as automated coverage.
 

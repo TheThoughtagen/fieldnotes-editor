@@ -13,6 +13,8 @@ test "$(find "$app/Contents/MacOS" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 2
 file "$app/Contents/MacOS/fieldnotes" | grep -q 'Mach-O'
 file "$app/Contents/Resources/bin/fieldnotes" | grep -q 'shell script'
 test -f "$app/Contents/Resources/editor-web/index.html"
+test -s "$app/Contents/Resources/AppIcon.icns"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist" | grep -qx 'AppIcon'
 /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" | grep -qx 'com.thethoughtagen.fieldnotes'
 /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" | grep -qx 'FIELDNOTESApp'
 set +e
