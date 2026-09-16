@@ -17,6 +17,42 @@ import WebKit
         #expect(theme.tokens["purple"] == "#abcdef")
         #expect(theme.kind == .dark)
     }
+    @Test("JSONC line comments accept LF, CRLF and CR without consuming quoted comment characters", arguments: ["\n", "\r\n", "\r"])
+    func jsoncLineEndings(ending: String) throws {
+        let lines = [
+            "// exported color theme",
+            "{ // object comment",
+            #"  "name": "A \"quoted\" // /* theme */ \\ path", // name comment"#,
+            #"  "type": "light", /* block comment */"#,
+            ##"  "colors": {"editor.background":"#123456",}, // color comment"##,
+            "}",
+            "// final comment without a terminator"
+        ]
+        let theme = try ThemeImporter.parse(Data(lines.joined(separator: ending).utf8))
+        #expect(theme.name == #"A "quoted" // /* theme */ \ path"#)
+        #expect(theme.kind == .light)
+        #expect(theme.tokens["paper"] == "#123456")
+    }
+
+    @Test func onlySimpleTokenScopesMap() throws {
+        let supported = ["string.quoted.double.html": "string", "comment.line.double-slash": "comment", "keyword.operator.arithmetic": "operator", "constant.numeric.integer": "number"]
+        for (scope, token) in supported { #expect(ThemeImporter.mappedScope(scope) == token) }
+        let unsupported = ["string.quoted - punctuation.definition.string", "string.quoted source.js", "source.js string.quoted", "string.quoted > punctuation", "string.quoted|comment", "string.(quoted)", "string..quoted", "string.quoted\tcomment", "L:string.quoted", "string.quoted*", "string.quoted -comment"]
+        for scope in unsupported { #expect(ThemeImporter.mappedScope(scope) == nil) }
+        let rules: [[String: Any]] = [
+            ["scope": "string.quoted.double", "settings": ["foreground": "#123456"]],
+            ["scope": "comment.line, variable.other", "settings": ["foreground": "#234567"]],
+            ["scope": ["keyword.control", "constant.numeric.integer"], "settings": ["foreground": "#345678"]]
+        ] + unsupported.map { ["scope": $0, "settings": ["foreground": "#abcdef"]] }
+        let data = try JSONSerialization.data(withJSONObject: ["name": "Simple scopes", "tokenColors": rules])
+        let theme = try ThemeImporter.parse(data)
+        #expect(theme.tokens["string"] == "#123456")
+        #expect(theme.tokens["comment"] == "#234567")
+        #expect(theme.tokens["variable"] == "#234567")
+        #expect(theme.tokens["keyword"] == "#345678")
+        #expect(theme.tokens["number"] == "#345678")
+    }
+
     @Test func rejectsUnsafeAndMalformed() {
         for source in ["{\"include\":\"../other.json\"}", "{\"name\":\"Bad\",\"colors\":{\"editor.background\":\"url(https://evil)\"}}", "{\"name\":\"Bad\",\"tokenColors\":\"./tokens.json\"}", "{ /* unfinished", "{\"name\":\"Bad\",\"type\":\"wrong\"}"] {
             #expect(throws: (any Error).self) { try ThemeImporter.parse(Data(source.utf8)) }

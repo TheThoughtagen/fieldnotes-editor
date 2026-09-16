@@ -90,6 +90,13 @@ enum ThemeImporter {
     }
     static func mappedScope(_ scope: String) -> String? {
         // Deliberately a small category mapping, not a TextMate selector interpreter.
+        // Only simple dot-qualified names participate; context, exclusions and selector operators do not.
+        let segments = scope.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.allSatisfy({ segment in
+            !segment.isEmpty && segment.utf8.allSatisfy { byte in
+                (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte) || byte == 95 || byte == 45
+            } && segment.first != "-"
+        }) else { return nil }
         let mappings = [("comment", "comment"), ("keyword.operator", "operator"), ("keyword", "keyword"), ("storage", "keyword"), ("string", "string"), ("constant.numeric", "number"), ("entity.name.type", "type"), ("support.type", "type"), ("entity.name.function", "function"), ("support.function", "function"), ("variable", "variable"), ("invalid", "invalid"), ("markup.heading", "heading"), ("markup.underline.link", "link")]
         return mappings.first { scope == $0.0 || scope.hasPrefix($0.0 + ".") }?.1
     }
@@ -106,7 +113,8 @@ enum ThemeImporter {
             if c == "\"" { quoted = true; output.append(c); i += 1; continue }
             if c == "/", i + 1 < chars.count, chars[i + 1] == "/" {
                 output.append(" "); i += 2
-                while i < chars.count && chars[i] != "\n" && chars[i] != "\r" { i += 1 }
+                // Swift treats CRLF as one Character, distinct from either standalone terminator.
+                while i < chars.count && chars[i] != "\n" && chars[i] != "\r" && chars[i] != "\r\n" { i += 1 }
                 continue
             }
             if c == "/", i + 1 < chars.count, chars[i + 1] == "*" {
