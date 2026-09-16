@@ -28,9 +28,11 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
         }
         do {
             let request = try EditorBridgeRequest.validate(body: body, isMainFrame: isMainFrame)
-            if request.kind == .workspaceSearch {
+            if request.kind == .workspaceSearch || request.kind == .imageImport {
                 Task { @MainActor [weak self, session] in
-                    let response = await session.prepareWorkspaceSearchResponse(to: request)
+                    let response = request.kind == .workspaceSearch
+                        ? await session.prepareWorkspaceSearchResponse(to: request)
+                        : await session.prepareImageImportResponse(to: request)
                     guard self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); return }
                     replyHandler(response.reply, nil)
                 }
@@ -65,11 +67,13 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
 final class EditorWebRegistration {
     let configuration: WKWebViewConfiguration
     let handler: WeakEditorReplyHandler
+    let resourceHandler: ResourceSchemeHandler?
     private var generation = UUID()
 
-    init(configuration: WKWebViewConfiguration, handler: WeakEditorReplyHandler) {
+    init(configuration: WKWebViewConfiguration, handler: WeakEditorReplyHandler, resourceHandler: ResourceSchemeHandler? = nil) {
         self.configuration = configuration
         self.handler = handler
+        self.resourceHandler = resourceHandler
     }
 
     var currentGeneration: UUID { generation }
@@ -92,7 +96,9 @@ enum EditorWebConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let handler = WeakEditorReplyHandler(session: session)
+        let resourceHandler = ResourceSchemeHandler(resolver: ResourceResolver { [weak session] in session?.resourceScope })
         configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: "native")
-        return EditorWebRegistration(configuration: configuration, handler: handler)
+        configuration.setURLSchemeHandler(resourceHandler, forURLScheme: "fieldnotes-resource")
+        return EditorWebRegistration(configuration: configuration, handler: handler, resourceHandler: resourceHandler)
     }
 }

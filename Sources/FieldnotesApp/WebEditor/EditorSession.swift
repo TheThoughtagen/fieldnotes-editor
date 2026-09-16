@@ -48,6 +48,29 @@ struct EditorSessionResponse {
     var onNativeAction: ((NativeEditorAction) -> Void)?
     var onOpenWorkspaceDocument: ((URL, Int?) -> Void)?
     var sendCommand: ((EditorCommand) -> Void)?
+    var onEnsureSaveLocation: (() async -> URL?)?
+
+    var resourceScope: ResourceScope? {
+        guard let context = pendingOpenContext?.context else { return nil }
+        let root: URL
+        switch context.localAssetPolicy {
+        case .workspace:
+            root = context.workspace
+        case .documentDirectory:
+            guard let document = context.document else { return nil }
+            root = document.deletingLastPathComponent()
+        }
+        let base = context.document?.deletingLastPathComponent() ?? root
+        return ResourceScope(generation: contextGeneration, allowedRoot: root.resolvingSymlinksInPath().standardizedFileURL, baseURL: base.resolvingSymlinksInPath().standardizedFileURL)
+    }
+
+    var currentWorkspaceURL: URL? {
+        pendingOpenContext?.context.workspace.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    var currentDocumentURL: URL? {
+        pendingOpenContext?.context.document?.resolvingSymlinksInPath().standardizedFileURL
+    }
 
     init(state: DocumentState, documentID: String = UUID().uuidString, defaults: UserDefaults = .standard, indexBuilder: @escaping @Sendable (URL) -> WorkspaceIndex = { WorkspaceIndex(root: $0) }) {
         self.state = state
@@ -71,6 +94,11 @@ struct EditorSessionResponse {
         let root = context.context.workspace, builder = indexBuilder
         indexTask = Task.detached(priority: .utility) { builder(root) }
         onContextChanged?()
+    }
+
+    func refreshDocumentLocation(_ url: URL) throws {
+        let context = try WorkspaceResolver().resolve(input: url)
+        installOpenContext(.init(context: context, requestedMode: FieldnotesCore.PresentationMode(rawValue: presentationMode), line: nil, column: nil))
     }
 
     func receive(_ request: EditorBridgeRequest) -> [String: Any] {
@@ -150,6 +178,8 @@ struct EditorSessionResponse {
                   let url = workspaceIndex?.resolve(id: resultID)
             else { return response(rejection()) }
             return response(acknowledgement(), deferredOpenURL: url, deferredOpenLine: workspaceIndex?.line(id: resultID))
+        case .imageImport:
+            return response(rejection())
         }
     }
 
@@ -170,6 +200,25 @@ struct EditorSessionResponse {
             "revision": state.revision, "generation": generation,
             "results": results.map { ["id": $0.id, "title": $0.title] },
         ])
+    }
+
+    func prepareImageImportResponse(to request: EditorBridgeRequest) async -> EditorSessionResponse {
+        guard request.kind == .imageImport, request.documentID == documentID,
+              request.baseRevision == state.revision, request.revision == state.revision,
+              request.payload.generation == contextGeneration else { return response(rejection()) }
+        if pendingOpenContext?.context.document == nil {
+            guard let savedURL = await onEnsureSaveLocation?() else {
+                return response(["kind": "imageImportCancelled"])
+            }
+            do {
+                if currentDocumentURL != savedURL.resolvingSymlinksInPath().standardizedFileURL {
+                    try refreshDocumentLocation(savedURL)
+                }
+            }
+            catch { return response(["kind": "imageImportFailed", "reason": "save location unavailable"]) }
+        }
+        do { return response(try importImage(request.payload)) }
+        catch { return response(["kind": "imageImportFailed", "reason": String(describing: error)]) }
     }
 
     func perform(_ action: NativeEditorAction) {
@@ -226,6 +275,54 @@ struct EditorSessionResponse {
 
     private func modeKey(_ root: URL) -> String {
         "workspaceMode." + root.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private func importImage(_ payload: EditorBridgePayload) throws -> [String: Any] {
+        guard let context = pendingOpenContext?.context, let document = context.document,
+              let filename = payload.filename, let altText = payload.altText else {
+            return ["kind": "imageSaveRequired"]
+        }
+        let documentDirectory = document.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        let destination: URL
+        if payload.linkInPlace == true {
+            guard let source = payload.sourceURL.flatMap(URL.init(string:)) else { throw ResourceError.malformedRequest }
+            destination = source.resolvingSymlinksInPath().standardizedFileURL
+            let allowedRoot = resourceScope?.allowedRoot ?? documentDirectory
+            guard contains(destination, in: allowedRoot),
+                  (try? destination.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                throw ResourceError.outsideAllowedRoot
+            }
+        } else {
+            let images = documentDirectory.appendingPathComponent("images", isDirectory: true)
+            if let encoded = payload.dataBase64, let data = Data(base64Encoded: encoded), data.count <= 20_000_000 {
+                destination = try ImageImporter().write(data, suggestedName: filename, into: images)
+            } else if let source = payload.sourceURL.flatMap(URL.init(string:)) {
+                destination = try ImageImporter().copy(source, into: images)
+            } else { throw ResourceError.malformedRequest }
+        }
+        let relative = relativePath(from: documentDirectory, to: destination)
+        let escapedAlt = altText.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "]", with: "\\]")
+        var reply: [String: Any] = ["kind": "imageImported", "path": relative, "altText": escapedAlt]
+        if payload.linkInPlace == true, context.localAssetPolicy == .documentDirectory {
+            reply["diagnostic"] = "Linked image remains in place; publication requires assets inside the post directory."
+        }
+        return reply
+    }
+
+    private func contains(_ candidate: URL, in root: URL) -> Bool {
+        let rootParts = root.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let candidateParts = candidate.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        return candidateParts.count >= rootParts.count && Array(candidateParts.prefix(rootParts.count)) == rootParts
+    }
+
+    private func relativePath(from base: URL, to target: URL) -> String {
+        let baseParts = base.standardizedFileURL.pathComponents
+        let targetParts = target.standardizedFileURL.pathComponents
+        var common = 0
+        while common < min(baseParts.count, targetParts.count), baseParts[common] == targetParts[common] { common += 1 }
+        let components = Array(repeating: "..", count: baseParts.count - common) + targetParts.dropFirst(common)
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "()"))
+        return components.map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }.joined(separator: "/")
     }
 
     private func acknowledgement() -> [String: Any] {

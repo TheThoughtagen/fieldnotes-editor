@@ -66,8 +66,16 @@ export interface NativeBridge {
   postStatus(status: EditorStatus): void;
   postSchemaState(state: "none" | "valid" | "invalid"): void;
   requestAction(action: "save" | "quit"): Promise<boolean>;
+  importImage(request: ImageImportRequest): Promise<ImageImportResult | undefined>;
   destroy(): void;
 }
+
+export interface ImageImportRequest {
+  filename: string; mimeType: string; dataBase64?: string; sourceURL?: string;
+  altText: string; linkInPlace: boolean;
+}
+
+export interface ImageImportResult { path: string; altText: string; diagnostic?: string; }
 
 export interface EditorStatus {
   presentationMode: "focus" | "source" | "preview";
@@ -452,7 +460,13 @@ export function createNativeBridge(view: EditorView, onContext?: (context: OpenC
     if (!contextGeneration || !(await waitUntilIdle())) return;
     await safePost({ kind: "workspaceOpen", documentID, baseRevision: revision, revision, payload: { resultID: id, generation: contextGeneration } });
   };
-  return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, postStatus, postSchemaState, requestAction, destroy };
+  const importImage = async (request: ImageImportRequest): Promise<ImageImportResult | undefined> => {
+    if (!handler || !contextGeneration || !(await waitUntilIdle()) || !documentID) return undefined;
+    const reply = await safePost({ kind: "imageImport", documentID, baseRevision: revision, revision, payload: { ...request, generation: contextGeneration } });
+    if (!isRecord(reply) || reply.kind !== "imageImported" || typeof reply.path !== "string" || !reply.path || typeof reply.altText !== "string" || !reply.altText || (reply.diagnostic !== undefined && typeof reply.diagnostic !== "string")) return undefined;
+    return { path: reply.path, altText: reply.altText, ...(typeof reply.diagnostic === "string" ? { diagnostic: reply.diagnostic } : {}) };
+  };
+  return { available: Boolean(handler), ready, get contextGeneration() { return contextGeneration; }, searchFiles, openFile, importImage, postStatus, postSchemaState, requestAction, destroy };
 }
 
 function transactionKind(update: ViewUpdate): PendingEdit["editKind"] {

@@ -19,6 +19,7 @@ enum EditorBridgeKind: String, Codable, Sendable {
     case workspaceOpen
     case contextApplied
     case schemaStatus
+    case imageImport
 }
 
 struct EditorBridgeSelection: Codable, Equatable, Sendable {
@@ -41,6 +42,12 @@ struct EditorBridgePayload: Codable, Equatable, Sendable {
     let resultID: String?
     let includeContent: Bool?
     let schemaState: String?
+    let filename: String?
+    let mimeType: String?
+    let dataBase64: String?
+    let sourceURL: String?
+    let altText: String?
+    let linkInPlace: Bool?
 
     init(
         text: String? = nil,
@@ -56,7 +63,13 @@ struct EditorBridgePayload: Codable, Equatable, Sendable {
         generation: Int? = nil,
         resultID: String? = nil,
         includeContent: Bool? = nil,
-        schemaState: String? = nil
+        schemaState: String? = nil,
+        filename: String? = nil,
+        mimeType: String? = nil,
+        dataBase64: String? = nil,
+        sourceURL: String? = nil,
+        altText: String? = nil,
+        linkInPlace: Bool? = nil
     ) {
         self.text = text
         self.selection = selection
@@ -72,6 +85,12 @@ struct EditorBridgePayload: Codable, Equatable, Sendable {
         self.resultID = resultID
         self.includeContent = includeContent
         self.schemaState = schemaState
+        self.filename = filename
+        self.mimeType = mimeType
+        self.dataBase64 = dataBase64
+        self.sourceURL = sourceURL
+        self.altText = altText
+        self.linkInPlace = linkInPlace
     }
 }
 
@@ -167,6 +186,26 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
                 throw BridgeProtocolError.invalidValue("workspaceOpen")
             }
             payload = .init(generation: generation, resultID: resultID)
+        case .imageImport:
+            let allowed: Set<String> = payloadContainer.contains(.init("sourceURL"))
+                ? ["filename", "mimeType", "sourceURL", "altText", "linkInPlace", "generation"]
+                : ["filename", "mimeType", "dataBase64", "altText", "linkInPlace", "generation"]
+            try Self.requireExactKeys(payloadContainer.allKeys.map(\.stringValue), allowed: allowed)
+            guard revision == baseRevision else { throw BridgeProtocolError.invalidValue("revision") }
+            let filename = try payloadContainer.decode(String.self, forKey: .init("filename"))
+            let mimeType = try payloadContainer.decode(String.self, forKey: .init("mimeType"))
+            let dataBase64 = try payloadContainer.decodeIfPresent(String.self, forKey: .init("dataBase64"))
+            let sourceURL = try payloadContainer.decodeIfPresent(String.self, forKey: .init("sourceURL"))
+            let altText = try payloadContainer.decode(String.self, forKey: .init("altText")).trimmingCharacters(in: .whitespacesAndNewlines)
+            let linkInPlace = try payloadContainer.decode(Bool.self, forKey: .init("linkInPlace"))
+            let generation = try payloadContainer.decode(Int.self, forKey: .init("generation"))
+            guard !filename.isEmpty, filename.utf8.count <= 255, mimeType.hasPrefix("image/"), mimeType.utf8.count <= 128,
+                  !altText.isEmpty, altText.utf8.count <= 512, generation > 0,
+                  dataBase64?.utf8.count ?? 0 <= 28_000_000,
+                  (sourceURL == nil || (URL(string: sourceURL!)?.isFileURL == true)),
+                  linkInPlace ? sourceURL != nil && dataBase64 == nil : (sourceURL == nil) != (dataBase64 == nil)
+            else { throw BridgeProtocolError.invalidValue("imageImport") }
+            payload = .init(generation: generation, filename: filename, mimeType: mimeType, dataBase64: dataBase64, sourceURL: sourceURL, altText: altText, linkInPlace: linkInPlace)
         }
         self.init(kind: kind, documentID: documentID, baseRevision: baseRevision, revision: revision, payload: payload)
     }
@@ -206,6 +245,14 @@ struct EditorBridgeRequest: Codable, Equatable, Sendable {
             try payloadContainer.encode(payload.generation, forKey: .init("generation"))
         case .workspaceOpen:
             try payloadContainer.encode(payload.resultID, forKey: .init("resultID"))
+            try payloadContainer.encode(payload.generation, forKey: .init("generation"))
+        case .imageImport:
+            try payloadContainer.encode(payload.filename, forKey: .init("filename"))
+            try payloadContainer.encode(payload.mimeType, forKey: .init("mimeType"))
+            try payloadContainer.encodeIfPresent(payload.dataBase64, forKey: .init("dataBase64"))
+            try payloadContainer.encodeIfPresent(payload.sourceURL, forKey: .init("sourceURL"))
+            try payloadContainer.encode(payload.altText, forKey: .init("altText"))
+            try payloadContainer.encode(payload.linkInPlace, forKey: .init("linkInPlace"))
             try payloadContainer.encode(payload.generation, forKey: .init("generation"))
         }
     }

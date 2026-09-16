@@ -78,6 +78,10 @@ final class FieldnotesDocument: NSDocument {
         super.save(to: url, ofType: typeName, for: saveOperation) { [weak self] error in
             if error == nil, saveOperation != .saveToOperation {
                 self?.state.promoteSavedSnapshot(snapshot)
+                for case let controller as DocumentWindowController in self?.windowControllers ?? [] {
+                    try? controller.session.refreshDocumentLocation(url)
+                    controller.workspaceURL = controller.session.currentWorkspaceURL
+                }
             }
             completionHandler(error)
         }

@@ -98,6 +98,7 @@ struct WebEditorView: NSViewRepresentable {
         func teardown(_ webView: WKWebView) {
             session.onContextChanged = nil
             session.sendCommand = nil
+            session.onEnsureSaveLocation = nil
             Task { @MainActor [weak webView] in
                 _ = try? await webView?.callAsyncJavaScript("window.fieldnotes.destroy()", arguments: [:], in: nil, contentWorld: .page)
             }
@@ -106,6 +107,32 @@ struct WebEditorView: NSViewRepresentable {
             webView.navigationDelegate = nil
             webView.uiDelegate = nil
             self.webView = nil
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping @MainActor @Sendable (String?) -> Void
+        ) {
+            guard frame.isMainFrame, prompt == "Describe this image for readers", let window = webView.window else {
+                completionHandler(nil)
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = "Image description"
+            alert.informativeText = "Describe the image for readers who cannot see it."
+            alert.addButton(withTitle: "Insert")
+            alert.addButton(withTitle: "Cancel")
+            let field = NSTextField(string: defaultText ?? "")
+            field.placeholderString = "Meaningful alt text"
+            field.frame.size = NSSize(width: 320, height: 24)
+            alert.accessoryView = field
+            alert.beginSheetModal(for: window) { response in
+                let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                completionHandler(response == .alertFirstButtonReturn && !text.isEmpty ? text : nil)
+            }
         }
 
         private func send(_ command: EditorCommand) {

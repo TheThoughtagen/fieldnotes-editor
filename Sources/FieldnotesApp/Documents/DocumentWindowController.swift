@@ -35,6 +35,27 @@ final class DocumentWindowController: NSWindowController {
         session.onOpenWorkspaceDocument = { [weak self] url, line in
             ApplicationOpenRouter().route(OpenRequest(target: url, line: line), workspaceRoot: self?.workspaceURL)
         }
+        session.onEnsureSaveLocation = { [weak self] in
+            guard let self, let document = self.document as? NSDocument else { return nil }
+            if let fileURL = document.fileURL { return fileURL }
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "Untitled.md"
+            let result: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+                if let window = self.window {
+                    panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                } else {
+                    continuation.resume(returning: panel.runModal())
+                }
+            }
+            guard result == .OK, let url = panel.url else { return nil }
+            let error: Error? = await withCheckedContinuation { continuation in
+                document.save(to: url, ofType: document.fileType ?? "net.daringfireball.markdown", for: .saveAsOperation) {
+                    continuation.resume(returning: $0)
+                }
+            }
+            guard error == nil else { return nil }
+            return document.fileURL ?? url
+        }
     }
 
     @available(*, unavailable)

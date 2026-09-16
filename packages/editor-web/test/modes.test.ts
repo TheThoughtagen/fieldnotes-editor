@@ -3,6 +3,7 @@ import { userEvent } from "vitest/browser";
 import { conformanceCases } from "@cruciblesoftware/fieldnotes-renderer/conformance";
 import { normalizeRenderedDom } from "@cruciblesoftware/fieldnotes-renderer/browser";
 import type { RenderedDocument } from "@cruciblesoftware/fieldnotes-renderer";
+import { rewritePreviewImages } from "../src/images.js";
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 40));
 
@@ -52,7 +53,7 @@ test.each(conformanceCases)("preview matches shared hydrated DOM for $name", asy
   const preview = document.querySelector<HTMLElement>(".fieldnotes-preview")!;
   const expectedWrapper = document.createElement("main");
   expectedWrapper.innerHTML = fixture.expected.hydratedDom;
-  expectedWrapper.querySelectorAll<HTMLImageElement>("img[src]").forEach(image => image.removeAttribute("src"));
+  rewritePreviewImages(expectedWrapper, { generation: 0, allowRemoteImages: false });
   expectedWrapper.querySelectorAll("iframe").forEach(frame => frame.remove());
   await expect.poll(() => ({ children: preview.childElementCount, pending: preview.querySelectorAll("pre.fieldnotes-mermaid").length }), { timeout: 10_000 })
     .toEqual({ children: expectedWrapper.firstElementChild?.childElementCount ?? 0, pending: 0 });

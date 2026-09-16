@@ -24,6 +24,23 @@ struct EditorModesTests {
         }
     }
 
+    @Test("image import envelopes are bounded, generation scoped, and closed")
+    func imageImportEnvelope() throws {
+        let valid = #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"gateway.png","mimeType":"image/png","dataBase64":"cGl4ZWxz","altText":"Gateway status","linkInPlace":false,"generation":2}}"#
+        let request = try EditorBridgeRequest.decode(body: JSONSerialization.jsonObject(with: Data(valid.utf8)))
+        #expect(request.kind == .imageImport)
+        #expect(request.payload.filename == "gateway.png")
+        #expect(request.payload.altText == "Gateway status")
+
+        for invalid in [
+            #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"","linkInPlace":false,"generation":2}}"#,
+            #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"A","linkInPlace":true,"generation":2}}"#,
+            #"{"kind":"imageImport","documentID":"doc","baseRevision":0,"revision":0,"payload":{"filename":"a.png","mimeType":"image/png","dataBase64":"cA==","altText":"A","linkInPlace":false,"generation":2,"path":"/tmp/x"}}"#,
+        ] {
+            #expect(throws: (any Error).self) { try EditorBridgeRequest.decode(body: JSONSerialization.jsonObject(with: Data(invalid.utf8))) }
+        }
+    }
+
     @Test("preparing an action reply never performs its side effect eagerly")
     func actionIsNotEager() throws {
         let state = try DocumentState(data: Data("one".utf8))
