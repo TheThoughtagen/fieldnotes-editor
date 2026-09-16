@@ -36,3 +36,20 @@ test("YAML metadata stays compact rather than becoming a Setext heading", () => 
     expect(getComputedStyle(metadata).fontSize).toBe('13px');
   } finally { editor.destroy(); }
 });
+
+test("all Mermaid diagram types get a readable surface and mixed lists preserve their markers", async () => {
+  document.body.innerHTML = '<main id="editor"></main>';
+  const root = document.querySelector<HTMLElement>("#editor")!;
+  const editor = createEditor(root, { initialDocument: '---\ntitle: Diagram review\n---\n\n1. [x] Done\n2. Ordered step\n\n- [x] Done\n- Unordered step\n\n```mermaid\nsequenceDiagram\nAlice->>Bob: Hello\nBob-->>Alice: Hi\n```' });
+  try {
+    editor.setMode('preview');
+    await expect.poll(() => root.querySelector('article svg')).toBeTruthy();
+    const diagram = root.querySelector('article svg')!;
+    expect(diagram.classList.contains('flowchart')).toBe(false);
+    expect(getComputedStyle(diagram).backgroundColor).toBe('rgb(248, 250, 252)');
+    expect(diagram.getBoundingClientRect().width).toBeLessThanOrEqual(root.getBoundingClientRect().width);
+    expect(getComputedStyle(root.querySelector('ol > li:not(.task-list-item)')!).listStyleType).toBe('decimal');
+    expect(getComputedStyle(root.querySelector('ul > li:not(.task-list-item)')!).listStyleType).toBe('disc');
+    for (const item of root.querySelectorAll('.task-list-item')) expect(getComputedStyle(item).listStyleType).toBe('none');
+  } finally { editor.destroy(); }
+});

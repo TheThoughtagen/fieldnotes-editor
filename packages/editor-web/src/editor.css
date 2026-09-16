@@ -78,7 +78,8 @@ body { font-size:16px; }
 .fieldnotes-preview p { margin:0 0 1em; }
 .fieldnotes-preview a { color:var(--fn-accent); text-underline-offset:.18em; }
 .fieldnotes-preview :is(ul,ol) { padding-left:1.5em; margin-block:.75em 1em; }
-.fieldnotes-preview .contains-task-list > li:not(.task-list-item) { list-style:disc; }
+.fieldnotes-preview ul.contains-task-list > li:not(.task-list-item) { list-style:disc; }
+.fieldnotes-preview ol.contains-task-list > li:not(.task-list-item) { list-style:decimal; }
 .fieldnotes-preview li + li { margin-top:.25em; }
 .fieldnotes-preview li > p { margin-bottom:.35em; }
 .fieldnotes-preview blockquote { margin:1.25em 0; padding:.25em 0 .25em 1em; border-left:3px solid var(--fn-border); color:var(--fn-muted); }
@@ -91,8 +92,9 @@ body { font-size:16px; }
 .fieldnotes-preview th { background:var(--fn-surface); font-weight:600; }
 .fieldnotes-preview hr { border:0; border-top:1px solid var(--fn-border); margin:2em 0; }
 .fieldnotes-preview input { accent-color:var(--fn-accent); }
-/* Mermaid retains its own internal colors on a stable light diagram surface. */
-.fieldnotes-preview svg.flowchart { display:block; background:#f8fafc; border-radius:7px; padding:16px; box-sizing:border-box; margin-block:1.5em; }
+/* Sanitized Mermaid roots share the fieldnotes ID namespace across diagram types.
+   Keep their internal colors on a stable light surface without touching math SVG. */
+.fieldnotes-preview svg[id^="fieldnotes-"] { max-width:100%; height:auto; display:block; background:#f8fafc; border-radius:7px; padding:16px; box-sizing:border-box; margin-block:1.5em; }
 .fieldnotes-preview .katex { color:var(--fn-text); }
 .fn-image-widget { border-color:var(--fn-border); border-radius:7px; }
 .fn-image-loading { background:var(--fn-surface); }

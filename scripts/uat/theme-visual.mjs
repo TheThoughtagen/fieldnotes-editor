@@ -10,7 +10,9 @@ try {
  await page.goto('http://127.0.0.1:4178');
  await page.evaluate(async source => {
    const {createEditor} = await import('/src/editor.ts');
-   window.testEditor = createEditor(document.querySelector('#editor'), {initialDocument:source});
+   const root=document.querySelector('#editor');
+   root.fieldnotesEditor?.destroy();
+   window.testEditor = createEditor(root, {initialDocument:source});
    window.testView = window.testEditor.view;
    const {getCM} = await import('/node_modules/.vite/deps/@replit_codemirror-vim.js');
    window.testAdapter = getCM(window.testView);
@@ -60,6 +62,33 @@ try {
  await page.screenshot({path:`${output}theme-dark-palette.png`});
  await page.emulateMedia({colorScheme:'light'});
  await page.screenshot({path:`${output}theme-light-palette.png`});
+ await page.locator('.fieldnotes-command-palette input').focus();
+ await page.keyboard.press('Escape');
+ await page.waitForSelector('.fieldnotes-command-palette',{state:'detached'});
+ await page.evaluate(() => {
+   const editor=window.testEditor;
+   editor.view.dispatch({changes:{from:0,to:editor.view.state.doc.length,insert:'---\ntitle: Sequence review\n---\n\n1. [x] Done\n2. Ordered step\n\n- [x] Done\n- Unordered step\n\n```mermaid\nsequenceDiagram\nAlice->>Bob: Hello\nBob-->>Alice: Hi\n```'}});
+   editor.setMode('preview');
+   window.scrollTo(0,0);
+ });
+ await page.waitForSelector('article svg:not(.flowchart)');
+ for(const scheme of ['light','dark']) {
+   await page.emulateMedia({colorScheme:scheme});
+   const diagram=await page.evaluate(()=>{
+     const svg=document.querySelector('article svg');
+     const label=svg.querySelector('.messageText');
+     return {paper:getComputedStyle(svg).backgroundColor,ink:getComputedStyle(label).fill,
+       ordered:getComputedStyle(document.querySelector('ol > li:not(.task-list-item)')).listStyleType,
+       unordered:getComputedStyle(document.querySelector('ul > li:not(.task-list-item)')).listStyleType};
+   });
+   assert.equal(diagram.paper,'rgb(248, 250, 252)');
+   assert.ok(contrast(diagram.ink,diagram.paper)>=4.5);
+   assert.equal(diagram.ordered,'decimal');
+   assert.equal(diagram.unordered,'disc');
+   await page.evaluate(()=>{document.activeElement?.blur();window.scrollTo(0,0);document.querySelector('#editor').scrollTop=0;});
+   await page.waitForTimeout(100);
+   await page.screenshot({path:`${output}theme-${scheme}-sequence.png`,fullPage:true});
+ }
  await writeFile(`${output}theme-browser-measurements.json`,JSON.stringify({measurements,statePreserved:true,scrollPreserved:scroll},null,2));
  console.log('Light/dark computed styles, same view/Vim/history/selection and scroll preservation passed. Screenshots captured.');
 } finally {await browser.close();}
