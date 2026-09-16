@@ -20,12 +20,13 @@ private final class TestSchemeTask: NSObject, WKURLSchemeTask {
 private final class ResourceReadTracker: @unchecked Sendable {
     private let lock = NSLock(); private var released = false
     private(set) var active = 0; private(set) var maximum = 0; private(set) var starts = 0
-    func read() throws -> Data {
+    func read() async throws -> Data {
         lock.withLock { active += 1; starts += 1; maximum = max(maximum, active) }
         defer { lock.withLock { active -= 1 } }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !lock.withLock({ released }) {
-            if Task.isCancelled { throw CancellationError() }
-            usleep(1_000)
+            guard ContinuousClock.now < deadline else { throw PollTimeout.expired }
+            try await Task.sleep(for: .milliseconds(1))
         }
         return Data(Self.png)
     }
@@ -38,6 +39,17 @@ private final class ImmediateReadTracker: @unchecked Sendable {
     private let lock = NSLock(); private var count = 0
     func read() -> Data { lock.withLock { count += 1 }; return Data([1]) }
     var returned: Int { lock.withLock { count } }
+}
+
+private enum PollTimeout: Error { case expired }
+
+@MainActor
+private func waitUntil(_ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while !condition() {
+        guard ContinuousClock.now < deadline else { throw PollTimeout.expired }
+        try await Task.sleep(for: .milliseconds(1))
+    }
 }
 
 @Suite struct ImageImporterTests {
@@ -134,6 +146,26 @@ private final class ImmediateReadTracker: @unchecked Sendable {
         #expect(!FileManager.default.fileExists(atPath: outsideRoot.appendingPathComponent("images/b.png").path))
     }
 
+    @Test func ordinaryDirectoryReplacementRevokesExistingAuthority() throws {
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = fixture.appendingPathComponent("root")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let authority = try SecureDirectoryAuthority(granting: root)
+        try FileManager.default.moveItem(at: root, to: fixture.appendingPathComponent("old"))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("replacement".utf8).write(to: root.appendingPathComponent("a.png"))
+        #expect(throws: SecureFileError.unsafePath) {
+            try SecureFileIO.read(relativeComponents: ["a.png"], authority: authority, maximumBytes: 50)
+        }
+        #expect(throws: SecureFileError.unsafePath) {
+            try SecureFileIO.writeUnique(Data([1]), suggestedName: "b.png", directoryName: "images", authority: authority)
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("images").path))
+        let renewed = try SecureDirectoryAuthority(granting: root)
+        #expect(try SecureFileIO.read(relativeComponents: ["a.png"], authority: renewed, maximumBytes: 50) == Data("replacement".utf8))
+    }
+
     @Test @MainActor func resourceResolverRejectsTraversalStaleGenerationAndUnsupportedScheme() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -201,20 +233,21 @@ private final class ImmediateReadTracker: @unchecked Sendable {
         try Data(base64Encoded: Self.pngBase64)?.write(to: root.appendingPathComponent("a.png"))
         defer { try? FileManager.default.removeItem(at: root) }
         let tracker = ResourceReadTracker()
-        let handler = ResourceSchemeHandler(resolver: ResourceResolver { ResourceScope(generation: 1, allowedRoot: root) }) { _ in try tracker.read() }
+        defer { tracker.release() }
+        let handler = ResourceSchemeHandler(resolver: ResourceResolver { ResourceScope(generation: 1, allowedRoot: root) }) { _ in try await tracker.read() }
         let url = try #require(URL(string: "fieldnotes-resource://1/resource?path=a.png"))
         let tasks = (0..<10).map { _ in TestSchemeTask(url) }
         let webView = WKWebView()
         tasks.forEach { handler.webView(webView, start: $0) }
-        while tracker.snapshot().0 < 8 { await Task.yield() }
+        try await waitUntil { tracker.snapshot().active == 8 }
         #expect(tracker.snapshot().maximum == 8)
         #expect(tracker.snapshot().starts == 8)
 
         handler.webView(webView, stop: tasks[0])
-        while tracker.snapshot().starts < 9 { await Task.yield() }
+        try await waitUntil { tracker.snapshot().starts >= 9 }
         #expect(tracker.snapshot().maximum == 8)
         tracker.release()
-        while tasks.dropFirst().contains(where: { !$0.finished && !$0.failed }) { await Task.yield() }
+        try await waitUntil { tasks.dropFirst().allSatisfy { $0.finished || $0.failed } }
         #expect(tasks.dropFirst().allSatisfy { $0.finished })
         #expect(tasks.allSatisfy { !$0.failed })
     }
@@ -229,10 +262,15 @@ private final class ImmediateReadTracker: @unchecked Sendable {
         let url = try #require(URL(string: "fieldnotes-resource://1/resource?path=a.png"))
         let tasks = (0..<9).map { _ in TestSchemeTask(url) }, webView = WKWebView()
         tasks.forEach { handler.webView(webView, start: $0) }
-        while tracker.returned < 8 { usleep(1_000) }
+        // Deliberately withhold MainActor delivery until detached reads finish.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while tracker.returned < 8 {
+            guard ContinuousClock.now < deadline else { throw PollTimeout.expired }
+            usleep(1_000)
+        }
 
         handler.webView(webView, stop: tasks[0])
-        while !tasks[8].finished { await Task.yield() }
+        try await waitUntil { tasks[8].finished }
 
         #expect(tasks[0].callbackCount == 0)
         #expect(tasks[8].callbackCount == 3)
@@ -482,11 +520,11 @@ private final class ImmediateReadTracker: @unchecked Sendable {
         var replyError: String?
 
         handler.handle(body: body, isMainFrame: true) { _, error in replyError = error }
-        while resumeSave == nil { await Task.yield() }
+        try await waitUntil { resumeSave != nil }
         handler.markRemoved()
         try Data().write(to: document)
         resumeSave?(document)
-        for _ in 0..<5 { await Task.yield() }
+        try await waitUntil { replyError != nil }
 
         #expect(replyError == "editor session unavailable")
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("images").path))

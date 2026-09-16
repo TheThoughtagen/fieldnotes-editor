@@ -82,10 +82,10 @@ function installNativeExCommands(): void {
 }
 
 function findFrontmatterEnd(state: EditorState): number | undefined {
-  if (state.doc.lines < 3 || state.doc.line(1).text !== "---") return undefined;
-  for (let lineNumber = 3; lineNumber <= state.doc.lines; lineNumber += 1) {
+  if (state.doc.lines < 2 || !/^(?:\uFEFF)?---[\t ]*$/.test(state.doc.line(1).text)) return undefined;
+  for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
     const line = state.doc.line(lineNumber);
-    if (line.text === "---") return line.to;
+    if (/^---[\t ]*$/.test(line.text)) return line.to;
   }
   return undefined;
 }

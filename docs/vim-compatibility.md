@@ -39,7 +39,7 @@ Matrix v1: 54 command families / 146 executable tokens (43 supported, 3 adapted,
 | <code>"a "_ "+ "*</code> | supported | Use named, black-hole, and platform registers where the host permits clipboard access. |
 | <code>p P</code> | supported | After yl$, p on `abc` leaves `abca` at cursor 3; P leaves `abac` at cursor 3. |
 | <code>m{letter} '{letter} `{letter}</code> | supported | Set and jump to document-local marks. |
-| <code>q{register} @ {register} @@</code> | supported | Record and replay keyboard macros in the active document. |
+| <code>q{register} @{register} @@</code> | supported | Record and replay keyboard macros in the active document. |
 | <code>/pattern ?pattern</code> | supported | Search forward or backward. |
 | <code>n N</code> | supported | Repeat search in the same or opposite direction. |
 | <code>* #</code> | supported | Search for the word under the cursor. |

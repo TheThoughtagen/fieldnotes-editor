@@ -77,10 +77,10 @@ private final class SchemeTaskBox: @unchecked Sendable {
         let authorized: AuthorizedResource
     }
     private let resolver: ResourceResolver
-    private let reader: @Sendable (AuthorizedResource) throws -> Data
+    private let reader: @Sendable (AuthorizedResource) async throws -> Data
     private var pending: [Pending] = []
     private var workers: [ObjectIdentifier: Task<Void, Never>] = [:]
-    init(resolver: ResourceResolver, reader: @escaping @Sendable (AuthorizedResource) throws -> Data = {
+    init(resolver: ResourceResolver, reader: @escaping @Sendable (AuthorizedResource) async throws -> Data = {
         try SecureFileIO.read(relativeComponents: $0.relativeComponents, authority: $0.authority, maximumBytes: 50_000_000)
     }) { self.resolver = resolver; self.reader = reader }
 
@@ -105,7 +105,9 @@ private final class SchemeTaskBox: @unchecked Sendable {
             let item = pending.removeFirst()
             let reader = reader
             workers[item.identifier] = Task.detached { [weak self] in
-                let result = Result { try reader(item.authorized) }
+                let result: Result<Data, Error>
+                do { result = .success(try await reader(item.authorized)) }
+                catch { result = .failure(error) }
                 await self?.finish(item, result: result)
             }
         }

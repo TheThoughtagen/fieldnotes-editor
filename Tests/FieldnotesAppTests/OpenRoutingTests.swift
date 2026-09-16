@@ -6,6 +6,14 @@ import Testing
 @Suite("Application open routing", .serialized)
 @MainActor
 struct OpenRoutingTests {
+    @Test("ordinary cold launch requests an untitled document")
+    func ordinaryLaunch() {
+        let queue = OpenRequestQueue { _ in }
+        #expect(queue.shouldOpenUntitled)
+        queue.applicationDidFinishLaunching()
+        #expect(queue.shouldOpenUntitled)
+    }
+
     @Test("cold launch queues and drains requests in arrival order")
     func coldOrder() throws {
         var opened: [String] = []

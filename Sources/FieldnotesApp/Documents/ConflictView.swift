@@ -43,6 +43,7 @@ struct ConflictView: View {
         .onChange(of: conflict.id) { _, _ in
             review?.refresh(conflict)
             confirming = false
+            error = nil
         }
         .alert("Confirm conflict resolution", isPresented: $confirming) {
             Button("Cancel", role: .cancel) { review?.cancel() }

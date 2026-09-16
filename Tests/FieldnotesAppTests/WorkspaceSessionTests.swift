@@ -261,3 +261,16 @@ private final class IndexBuildProbe: @unchecked Sendable {
         return WorkspaceIndex(root: root)
     }
 }
+
+@Suite struct SearchNewlineTests {
+    @Test func equivalentLineEndingsPreserveSearchDestinations() {
+        let source = "---\ntags: [tag]\n---\n## Heading\n[link](target)\n"
+        let baseline = MarkdownSearchStructure.entries(source, limit: 20)
+        #expect(baseline.count == 3)
+        for newline in ["\r\n", "\r"] {
+            let actual = MarkdownSearchStructure.entries(source.replacingOccurrences(of: "\n", with: newline), limit: 20)
+            #expect(actual.map(\.title) == baseline.map(\.title))
+            #expect(actual.map(\.line) == baseline.map(\.line))
+        }
+    }
+}

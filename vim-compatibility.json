@@ -35,7 +35,7 @@
     {"id":"registers","notation":"\"a \"_ \"+ \"*","classification":"supported","outcome":"Use named, black-hole, and platform registers where the host permits clipboard access."},
     {"id":"put","notation":"p P","classification":"supported","outcome":"After yl$, p on `abc` leaves `abca` at cursor 3; P leaves `abac` at cursor 3."},
     {"id":"marks","notation":"m{letter} '{letter} `{letter}","classification":"supported","outcome":"Set and jump to document-local marks."},
-    {"id":"macros","notation":"q{register} @ {register} @@","classification":"supported","outcome":"Record and replay keyboard macros in the active document."},
+    {"id":"macros","notation":"q{register} @{register} @@","classification":"supported","outcome":"Record and replay keyboard macros in the active document."},
     {"id":"search-pattern","notation":"/pattern ?pattern","classification":"supported","outcome":"Search forward or backward."},
     {"id":"search-repeat","notation":"n N","classification":"supported","outcome":"Repeat search in the same or opposite direction."},
     {"id":"search-word","notation":"* #","classification":"supported","outcome":"Search for the word under the cursor."},

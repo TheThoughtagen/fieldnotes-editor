@@ -59,7 +59,11 @@ final class DocumentWindowController: NSWindowController {
                     continuation.resume(returning: $0)
                 }
             }
-            guard error == nil else { self.session.cancelFirstSaveTransition(); return nil }
+            if let error {
+                self.session.cancelFirstSaveTransition()
+                document.presentError(error)
+                return nil
+            }
             return document.fileURL ?? url
         }
         session.onChooseLinkInPlaceImage = { [weak self] in

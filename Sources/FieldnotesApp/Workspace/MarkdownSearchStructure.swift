@@ -7,7 +7,8 @@ enum MarkdownSearchStructure {
 
     static func entries(_ source: String, limit: Int) -> [Entry] {
         guard limit > 0 else { return [] }
-        let lines = source.components(separatedBy: "\n")
+        let lines = source.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
         var body: [SourceLine] = [], result: [Entry] = [], definitions = Set<String>()
         var frontmatter = false, tags = false
         var fence: (character: Character, length: Int)?

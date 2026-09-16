@@ -3,7 +3,7 @@ function normalize(path: string): string {
   const parts: string[] = [];
   for (const part of path.split("/")) {
     if (!part || part === ".") continue;
-    if (part === "..") { if (parts.at(-1) !== "..") parts.pop(); else if (!absolute) parts.push(part); }
+    if (part === "..") { if (parts.length > 0 && parts.at(-1) !== "..") parts.pop(); else if (!absolute) parts.push(part); }
     else parts.push(part);
   }
   return `${absolute ? "/" : ""}${parts.join("/")}` || (absolute ? "/" : ".");

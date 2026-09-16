@@ -258,3 +258,13 @@ test("Focus reuses its frontmatter extent on selection-only updates", async () =
     editor.destroy();
   }
 });
+
+test("Focus recognizes BOM and whitespace frontmatter delimiters including empty metadata", async () => {
+  const { createEditor } = await import("../src/editor.js");
+  for (const source of ["\uFEFF--- \t\ntitle: x\n---\t \n# Body", "---\n---\n# Body"]) {
+    const parent = document.createElement("main"); document.body.append(parent);
+    const editor = createEditor(parent, { initialDocument: source });
+    try { expect(parent.querySelector(".fn-frontmatter")).not.toBeNull(); }
+    finally { editor.destroy(); parent.remove(); }
+  }
+});

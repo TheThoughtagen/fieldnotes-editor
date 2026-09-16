@@ -133,6 +133,32 @@ struct EditorBridgeTests {
         registration?.teardown()
     }
 
+    @Test("an async request replies once when its weak session disappears before execution")
+    func vanishedAsyncSession() async throws {
+        var session: EditorSession? = EditorSession(state: DocumentState(), documentID: "doc")
+        let handler = WeakEditorReplyHandler(session: session!)
+        let body: [String: Any] = ["kind": "schemaValidate", "documentID": "doc", "revision": 0, "baseRevision": 0, "payload": ["generation": 1]]
+        var replies: [String] = []
+        handler.handle(body: body, isMainFrame: true) { _, error in replies.append(error ?? "unexpected success") }
+        session = nil
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while replies.isEmpty && ContinuousClock.now < deadline { await Task.yield() }
+        #expect(replies == ["editor session unavailable"])
+        // Subsequent requests are not left behind by an orphaned task.
+        #expect(handler.pendingRequestCount == 0)
+    }
+
+    @Test("registration cleanup safely hops to its actor after final release on a worker")
+    func backgroundRegistrationRelease() async throws {
+        let session = EditorSession(state: DocumentState(), documentID: "doc")
+        let box = RegistrationReleaseBox(EditorWebConfiguration.make(session: session))
+        let handler = box.registration!.handler
+        await Task.detached { box.registration = nil }.value
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while handler.isRegistered && ContinuousClock.now < deadline { await Task.yield() }
+        #expect(!handler.isRegistered)
+    }
+
     @Test("navigation permits only the exact editor page and user HTTPS links")
     func navigationPolicy() {
         let root = URL(fileURLWithPath: "/bundle/editor-web", isDirectory: true)
@@ -151,4 +177,10 @@ struct EditorBridgeTests {
     private func transaction(_ base: Int, _ revision: Int, _ text: String, _ editKind: String) -> String {
         #"{"kind":"transaction","documentID":"doc","baseRevision":\#(base),"revision":\#(revision),"payload":{"text":"\#(text)","selection":{"anchor":0,"head":\#(text.utf16.count)},"editKind":"\#(editKind)"}}"#
     }
+}
+
+// Ownership is transferred to a detached task; no concurrent access to this test box.
+private final class RegistrationReleaseBox: @unchecked Sendable {
+    var registration: EditorWebRegistration?
+    init(_ registration: EditorWebRegistration) { self.registration = registration }
 }

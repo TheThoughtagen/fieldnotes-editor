@@ -18,16 +18,19 @@ jobs:
       contents: write
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
-      DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
-      SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
-      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-      NOTARY_PRIVATE_KEY: ${{ secrets.NOTARY_PRIVATE_KEY }}
-      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-      NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
-      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require all release credentials and valid tag
+        env:
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.NOTARY_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +46,10 @@ jobs:
       - run: npm install --global npm@11.19.0 && npm ci
       - run: scripts/bundle-app.sh release
       - name: Import temporary signing credentials
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.NOTARY_PRIVATE_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +66,10 @@ jobs:
           security list-keychains -d user -s "$keychain" login.keychain-db
           echo "NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
       - run: scripts/sign-and-package.sh
+        env:
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
       - name: Verify mounted distribution
         shell: bash
         run: |
@@ -77,6 +88,7 @@ jobs:
           gh release edit "$GITHUB_REF_NAME" --draft=false
       - name: Update tap after release exists
         env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |

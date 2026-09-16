@@ -21,3 +21,13 @@ test("tag object is limited to Markdown Paragraph or HTMLBlock nodes", () => {
   expect(locate("```html\n<div>code</div>\n```", "code")).toBeUndefined();
   expect(locate("plain paragraph", "plain")).toBeUndefined();
 });
+
+test("tag objects include opening and closing markup and exclude an ended inner element", () => {
+  const source = '<section><em>word</em></section>';
+  for (const needle of ['<em>', '</em>', '/em>']) {
+    const inner = locate(source, needle);
+    expect(source.slice(inner?.from, inner?.to)).toBe("word");
+  }
+  const outer = locate(source, '</section>');
+  expect(source.slice(outer?.from, outer?.to)).toBe('<em>word</em>');
+});

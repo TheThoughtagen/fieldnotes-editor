@@ -11,6 +11,8 @@ enum SecureFileError: Error, Equatable {
 struct SecureDirectoryAuthority: Sendable {
     let canonicalPath: String
     let displayURL: URL
+    let device: dev_t
+    let inode: ino_t
 
     init(granting url: URL) throws {
         let descriptor = url.path.withCString { Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC) }
@@ -22,6 +24,8 @@ struct SecureDirectoryAuthority: Sendable {
         let end = buffer.firstIndex(of: 0) ?? buffer.endIndex
         canonicalPath = String(decoding: buffer[..<end].map(UInt8.init(bitPattern:)), as: UTF8.self)
         displayURL = url.standardizedFileURL
+        device = status.st_dev
+        inode = status.st_ino
     }
 }
 
@@ -38,7 +42,7 @@ enum SecureFileIO {
 
     static func read(relativeComponents: [String], authority: SecureDirectoryAuthority, maximumBytes: Int) throws -> Data {
         guard !relativeComponents.isEmpty, !relativeComponents.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { throw SecureFileError.unsafePath }
-        let root = try openPath(authority.canonicalPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let root = try openRoot(authority)
         var descriptor = root
         for (index, component) in relativeComponents.enumerated() {
             let flags = index == relativeComponents.count - 1 ? O_RDONLY | O_NOFOLLOW | O_CLOEXEC : O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
@@ -74,7 +78,7 @@ enum SecureFileIO {
     }
 
     static func writeUnique(_ data: Data, suggestedName: String, directoryName: String, authority: SecureDirectoryAuthority) throws -> URL {
-        let root = try openPath(authority.canonicalPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let root = try openRoot(authority)
         defer { close(root) }
         let mkdirResult = directoryName.withCString { mkdirat(root, $0, 0o755) }
         guard mkdirResult == 0 || errno == EEXIST else { throw SecureFileError.unavailable }
@@ -114,6 +118,17 @@ enum SecureFileIO {
             }
         }
         throw SecureFileError.unavailable
+    }
+
+    private static func openRoot(_ authority: SecureDirectoryAuthority) throws -> Int32 {
+        let descriptor = try openPath(authority.canonicalPath, finalFlags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_dev == authority.device, status.st_ino == authority.inode else {
+            close(descriptor)
+            throw SecureFileError.unsafePath
+        }
+        return descriptor
     }
 
     private static func openPath(_ path: String, finalFlags: Int32) throws -> Int32 {

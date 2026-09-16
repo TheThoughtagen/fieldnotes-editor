@@ -25,7 +25,7 @@ export function locateMarkdownTagObject(state: EditorState, position: number, ar
     } else stack.push({ name, start: index, openEnd: index + raw.length });
   }
   const local = position - node.from;
-  const match = pairs.filter(pair => local >= pair.openEnd && local <= pair.closeStart)
+  const match = pairs.filter(pair => local >= pair.start && local < pair.end)
     .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
   if (!match) return undefined;
   return around

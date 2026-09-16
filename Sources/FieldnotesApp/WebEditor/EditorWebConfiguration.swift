@@ -6,6 +6,8 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
     private(set) var isRegistered = true
     private var asynchronousTasks: [UUID: Task<Void, Never>] = [:]
 
+    var pendingRequestCount: Int { asynchronousTasks.count }
+
     init(session: EditorSession) {
         self.session = session
     }
@@ -33,16 +35,19 @@ final class WeakEditorReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
                 guard asynchronousTasks.count < 8 else { replyHandler(nil, "too many pending requests"); return }
                 let identifier = UUID()
                 let task = Task { @MainActor [weak self, weak session] in
-                    guard let session else { return }
+                    defer { self?.asynchronousTasks[identifier] = nil }
+                    guard let session, !Task.isCancelled, self?.isRegistered == true else {
+                        replyHandler(nil, "editor session unavailable")
+                        return
+                    }
                     let response: EditorSessionResponse
                     switch request.kind {
                     case .workspaceSearch: response = await session.prepareWorkspaceSearchResponse(to: request)
                     case .schemaValidate: response = await session.prepareSchemaValidationResponse(to: request)
                     default: response = await session.prepareImageImportResponse(to: request)
                     }
-                    guard !Task.isCancelled, self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); self?.asynchronousTasks[identifier] = nil; return }
+                    guard !Task.isCancelled, self?.isRegistered == true else { replyHandler(nil, "editor session unavailable"); return }
                     replyHandler(response.reply, nil)
-                    self?.asynchronousTasks[identifier] = nil
                 }
                 asynchronousTasks[identifier] = task
                 return
@@ -96,8 +101,8 @@ final class EditorWebRegistration {
         handler.markRemoved()
     }
 
-    deinit {
-        MainActor.assumeIsolated { teardown() }
+    isolated deinit {
+        teardown()
     }
 }
 

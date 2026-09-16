@@ -12,7 +12,7 @@ final class OpenRequestQueue {
         self.open = open
     }
 
-    var shouldOpenUntitled: Bool { didFinishLaunching && pending.isEmpty }
+    var shouldOpenUntitled: Bool { pending.isEmpty }
 
     func enqueue(_ request: OpenRequest) {
         guard didFinishLaunching else {
