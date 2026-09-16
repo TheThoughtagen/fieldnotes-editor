@@ -113,16 +113,30 @@ import WebKit
             _ = try await web.evaluateJavaScript("""
                 window.uatEditor = document.querySelector('#editor').fieldnotesEditor;
                 window.uatView = uatEditor.view;
-                uatView.dispatch({changes:{from:uatView.state.doc.length,insert:'Retained edit 🧭'},selection:{anchor:8}});
+                window.uatOriginal = uatView.state.doc.toString();
+                uatView.dispatch({changes:{from:uatView.state.doc.length,insert:'Retained edit 🧭'},userEvent:'input.theme-test'});
+                uatView.dispatch({changes:{from:uatView.state.doc.length,insert:'Redo edit'},userEvent:'input.theme-test'});
+                window.uatAdapter = uatView.cm;
+                uatAdapter.constructor.commands.undo(uatAdapter);
+                uatView.dispatch({selection:{anchor:8}});
+                uatView.contentDOM.dispatchEvent(new KeyboardEvent('keydown',{key:'i',bubbles:true}));
+                if (!uatAdapter.state.vim.insertMode) throw new Error('Expected Vim insert mode');
                 window.uatState = uatView.state;
                 window.uatVim = uatEditor.vimEnabled;
+                window.uatVimState = uatAdapter.state.vim;
+                // Native delivery and polling allow background parsing to replace EditorState.
+                // The editable document, selection and Vim adapter must still be identical.
+                window.uatUnchanged = () => uatEditor.view === uatView &&
+                    uatView.state.doc === uatState.doc && uatView.state.selection.eq(uatState.selection) &&
+                    uatEditor.vimEnabled === uatVim && uatView.cm === uatAdapter &&
+                    uatAdapter.state.vim === uatVimState && uatVimState.insertMode === true;
                 true;
                 """)
         }
         for id in ["midnight", "linen", "forest", "ink", "glacier", "sandstone"] {
             store.select(id: id)
             for web in webs {
-                try await eventually(web, "document.documentElement.dataset.theme === '\(id)' && uatEditor.view === uatView && uatView.state === uatState && uatEditor.vimEnabled === uatVim")
+                try await eventually(web, "document.documentElement.dataset.theme === '\(id)' && uatUnchanged()")
                 let theme = try #require(store.effectiveTheme)
                 let actual = try await web.evaluateJavaScript("getComputedStyle(document.documentElement).getPropertyValue('--fn-paper').trim()") as? String
                 #expect(actual == theme.tokens["paper"])
@@ -136,10 +150,10 @@ import WebKit
         _ = try await web.evaluateJavaScript("uatView.scrollDOM.scrollTop = 400; window.uatState = uatView.state; true")
         try await eventually(web, "uatView.scrollDOM.scrollTop === 400")
         store.beginPreview(); store.preview(id: "linen")
-        try await eventually(web, "document.documentElement.dataset.theme === 'linen' && uatView.state === uatState && uatView.scrollDOM.scrollTop === 400")
+        try await eventually(web, "document.documentElement.dataset.theme === 'linen' && uatUnchanged() && uatView.scrollDOM.scrollTop === 400")
         #expect(ThemeStore(defaults: defaults).selectedID == "midnight")
         store.cancelPreview()
-        try await eventually(web, "document.documentElement.dataset.theme === 'midnight' && uatView.state === uatState && uatView.scrollDOM.scrollTop === 400")
+        try await eventually(web, "document.documentElement.dataset.theme === 'midnight' && uatUnchanged() && uatView.scrollDOM.scrollTop === 400")
         let gutter = try await web.evaluateJavaScript("getComputedStyle(document.querySelector('.cm-gutters')).backgroundColor") as? String
         #expect(gutter == "rgb(32, 35, 38)")
         _ = try await web.evaluateJavaScript("window.fieldnotes.setMode('focus'); uatView.scrollDOM.scrollTop = 0; true")
@@ -161,6 +175,23 @@ import WebKit
         #expect(["none", "absent"].contains(result["gutter"] as? String ?? ""))
         #expect(result["unchanged"] as? Bool == true)
         #expect(coordinators[0].session.state.editorText == source + "Retained edit 🧭")
+        // Exercise both pre-existing history branches after all native theme deliveries.
+        for web in webs {
+            let preservedHistory = try await web.evaluateJavaScript("""
+                (() => {
+                    const commands = uatAdapter.constructor.commands;
+                    commands.redo(uatAdapter);
+                    if (uatView.state.doc.toString() !== uatOriginal + 'Retained edit 🧭Redo edit') return false;
+                    commands.undo(uatAdapter);
+                    if (uatView.state.doc.toString() !== uatOriginal + 'Retained edit 🧭') return false;
+                    commands.undo(uatAdapter);
+                    if (uatView.state.doc.toString() !== uatOriginal) return false;
+                    commands.redo(uatAdapter);
+                    return uatView.state.doc.toString() === uatOriginal + 'Retained edit 🧭';
+                })()
+                """) as? Bool
+            #expect(preservedHistory == true)
+        }
         let future = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
         future.isReleasedWhenClosed = false; windows.append(future)
         #expect(future.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
@@ -232,7 +263,7 @@ import WebKit
             if let result = try? await web.evaluateJavaScript(script), result as? Bool == true { return }
             try await Task.sleep(for: .milliseconds(40))
         }
-        let details = try? await web.evaluateJavaScript("JSON.stringify({theme:document.documentElement.dataset.theme,scroll:window.uatView?.scrollDOM.scrollTop,state:window.uatView?.state === window.uatState})")
+        let details = try? await web.evaluateJavaScript("JSON.stringify({theme:document.documentElement.dataset.theme,scroll:window.uatView?.scrollDOM.scrollTop,preserved:window.uatUnchanged?.()})")
         throw ThemeImportError.invalid("Native WK condition failed: \(script); \(details ?? "unknown")")
     }
 }
