@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { normalizeUri } from "micromark-util-sanitize-uri";
 import type { AssetReference, RenderDiagnostic } from "./types.js";
 
 type MarkdownNode = {
@@ -73,13 +74,18 @@ export function discoverImageAssets(
 
 const videoExtension = /\.(?:mp4|webm)$/iu;
 
-// Only relative paths count: no scheme, no protocol-relative host, so the document's own folder holds the file.
+// Only document-relative paths count. Browsers read "\\" as "/", so "/\\host" or "\\\\host" would reach another origin;
+// reject backslashes, whitespace, control characters, schemes, and anything rooted at "/".
 export function isLocalVideo(url: string): boolean {
   const path = url.split(/[?#]/u)[0] ?? "";
-  return !/^[a-z][a-z0-9+.-]*:/iu.test(url) && !url.startsWith("//") && videoExtension.test(path);
+  return !/[\\\u0000-\u0020\u007f]/u.test(url)
+    && !/^[a-z][a-z0-9+.-]*:/iu.test(url)
+    && !url.startsWith("/")
+    && videoExtension.test(path);
 }
 
 function markAsVideo(node: MarkdownNode, url: string, alt: string, title: string | undefined): void {
+  const src = normalizeUri(url);
   node.data = {
     ...node.data,
     hName: "video",
@@ -88,15 +94,11 @@ function markAsVideo(node: MarkdownNode, url: string, alt: string, title: string
       controls: true,
       playsInline: true,
       preload: "metadata",
-      src: url,
+      src,
       ...(title === undefined ? {} : { title })
     },
-    hChildren: [{
-      type: "element",
-      tagName: "a",
-      properties: { href: url },
-      children: [{ type: "text", value: alt === "" ? url : alt }]
-    }]
+    // Text fallback: a link here would nest inside [![...](clip.mp4)](url) and break the video.
+    hChildren: [{ type: "text", value: alt === "" ? src : alt }]
   };
 }
 
