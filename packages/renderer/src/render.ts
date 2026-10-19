@@ -18,6 +18,7 @@ import {
   collectTrustedMarkup,
   collectTrustedRenderedMarkup,
   enforceIframePolicy,
+  enforceVideoPolicy,
   restoreTrustedMarkup,
   sanitizeSchema
 } from "./sanitize.js";
@@ -55,6 +56,7 @@ export async function renderDocument(source: string, options: RenderOptions = {}
     .use(() => tree => collectTrustedRenderedMarkup(tree, trustedMarkup))
     .use(rehypeRaw)
     .use(() => tree => enforceIframePolicy(tree, diagnostics))
+    .use(() => tree => enforceVideoPolicy(tree, trustedMarkup, diagnostics))
     .use(rehypeSanitize, sanitizeSchema)
     .use(() => tree => restoreTrustedMarkup(tree, trustedMarkup))
     .use(rehypeKatex)

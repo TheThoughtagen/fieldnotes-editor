@@ -3,6 +3,7 @@ import type { AssetReference, RenderDiagnostic } from "./types.js";
 
 type MarkdownNode = {
   type: string;
+  data?: { hName?: string; hProperties?: Record<string, unknown>; hChildren?: unknown[] };
   url?: string;
   title?: string | null;
   alt?: string | null;
@@ -42,8 +43,12 @@ export function discoverImageAssets(
     }
 
     const remote = /^https?:/iu.test(target.url);
+    const video = isLocalVideo(target.url);
+    if (video) {
+      markAsVideo(node, target.url, node.alt ?? "", target.title);
+    }
     const asset: AssetReference = {
-      kind: "image",
+      kind: video ? "video" : "image",
       source: target.url,
       remote,
       alt: node.alt ?? "",
@@ -64,6 +69,35 @@ export function discoverImageAssets(
   });
 
   return { assets, diagnostics };
+}
+
+const videoExtension = /\.(?:mp4|webm)$/iu;
+
+// Only relative paths count: no scheme, no protocol-relative host, so the document's own folder holds the file.
+export function isLocalVideo(url: string): boolean {
+  const path = url.split(/[?#]/u)[0] ?? "";
+  return !/^[a-z][a-z0-9+.-]*:/iu.test(url) && !url.startsWith("//") && videoExtension.test(path);
+}
+
+function markAsVideo(node: MarkdownNode, url: string, alt: string, title: string | undefined): void {
+  node.data = {
+    ...node.data,
+    hName: "video",
+    hProperties: {
+      ...(alt === "" ? {} : { ariaLabel: alt }),
+      controls: true,
+      playsInline: true,
+      preload: "metadata",
+      src: url,
+      ...(title === undefined ? {} : { title })
+    },
+    hChildren: [{
+      type: "element",
+      tagName: "a",
+      properties: { href: url },
+      children: [{ type: "text", value: alt === "" ? url : alt }]
+    }]
+  };
 }
 
 function visitNodes(value: unknown, visitor: (node: MarkdownNode) => void): void {
