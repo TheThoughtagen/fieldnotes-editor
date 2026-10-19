@@ -20,6 +20,7 @@ export type TrustedMarkup = {
   ids: Map<string, string>;
   highlightLines: Map<string, string>;
   footnoteReferences: Map<string, Record<string, unknown>>;
+  videos: Set<string>;
   footnoteSection?: {
     nodes: Array<{
       pathFromEnd: number[];
@@ -36,10 +37,11 @@ const iframeHosts = new Map([
 
 export const sanitizeSchema: SanitizeSchema = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []).filter(tag => tag !== "source"), "iframe"],
+  tagNames: [...(defaultSchema.tagNames ?? []).filter(tag => tag !== "source"), "iframe", "video"],
   attributes: {
     ...defaultSchema.attributes,
-    iframe: ["src", "title", "width", "height", "allowFullScreen", "sandbox"]
+    iframe: ["src", "title", "width", "height", "allowFullScreen", "sandbox"],
+    video: ["ariaLabel", "controls", "playsInline", "preload", "src", "title"]
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -55,7 +57,8 @@ export function collectTrustedMarkup(tree: unknown): TrustedMarkup {
   const trusted: TrustedMarkup = {
     ids: new Map(),
     highlightLines: new Map(),
-    footnoteReferences: new Map()
+    footnoteReferences: new Map(),
+    videos: new Set()
   };
   collectMarkdown(tree, trusted);
   return trusted;
@@ -63,6 +66,10 @@ export function collectTrustedMarkup(tree: unknown): TrustedMarkup {
 
 export function collectTrustedRenderedMarkup(tree: unknown, trusted: TrustedMarkup): void {
   visitNodes(tree, node => {
+    // Runs before raw HTML is parsed, so every video seen here came from Markdown image syntax.
+    if (node.tagName === "video") {
+      trusted.videos.add(positionKey("video", node));
+    }
     if (node.tagName === "a" && node.properties?.dataFootnoteRef !== undefined) {
       trusted.footnoteReferences.set(positionKey("a", node), {
         ariaDescribedBy: node.properties.ariaDescribedBy,
@@ -282,6 +289,34 @@ function filterChildren(parent: HastNode, diagnostics: RenderDiagnostic[]): void
       ...(width === undefined ? {} : { width })
     };
     child.children = [];
+    return true;
+  });
+}
+
+export function enforceVideoPolicy(tree: unknown, trusted: TrustedMarkup, diagnostics: RenderDiagnostic[]): void {
+  if (!isHastNode(tree)) {
+    return;
+  }
+  filterVideos(tree, trusted, diagnostics);
+}
+
+function filterVideos(parent: HastNode, trusted: TrustedMarkup, diagnostics: RenderDiagnostic[]): void {
+  parent.children = parent.children?.filter(child => {
+    if (child.tagName !== "video") {
+      filterVideos(child, trusted, diagnostics);
+      return true;
+    }
+    if (!trusted.videos.has(positionKey("video", child))) {
+      diagnostics.push({
+        code: "video.raw-html",
+        message: "Raw HTML video is not allowed; reference a local .mp4 or .webm file with image syntax.",
+        severity: "warning"
+      });
+      return false;
+    }
+    // remark-rehype copies the image alt onto the element; video uses aria-label instead.
+    const { alt: _alt, ...properties } = child.properties ?? {};
+    child.properties = properties;
     return true;
   });
 }

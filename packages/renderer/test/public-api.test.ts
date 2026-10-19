@@ -11,7 +11,7 @@ describe("package contract", () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg).toMatchObject({
       name: "@cruciblesoftware/fieldnotes-renderer",
-      version: "0.1.0",
+      version: "0.2.0",
       type: "module",
       engines: { node: ">=24" },
       publishConfig: { access: "public", provenance: true }

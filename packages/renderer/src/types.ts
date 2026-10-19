@@ -28,7 +28,7 @@ export type Heading = {
 };
 
 export type AssetReference = {
-  kind: "image";
+  kind: "image" | "video";
   source: string;
   resolvedPath?: string;
   remote: boolean;
