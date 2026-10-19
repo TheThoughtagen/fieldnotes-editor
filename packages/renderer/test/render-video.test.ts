@@ -66,6 +66,23 @@ describe("local video", () => {
     expect(result.html).toContain('src="images/caf%C3%A9%20clip.mp4"');
   });
 
+  it("uses the first reference definition, like the HTML output", async () => {
+    const result = await renderDocument("![Clip][clip]\n\n[clip]: images/still.png\n[clip]: images/clip.mp4\n");
+
+    expect(result.html).toContain('<img alt="Clip" src="images/still.png">');
+    expect(result.assets).toEqual([expect.objectContaining({ kind: "image", source: "images/still.png" })]);
+  });
+
+  it("drops query and fragment suffixes from the resolved file path", async () => {
+    const result = await renderDocument("![Clip](images/clip.mp4#t=10)\n", { sourcePath: "/notes/post/index.md" });
+
+    expect(result.html).toContain('src="images/clip.mp4#t=10"');
+    expect(result.assets).toEqual([expect.objectContaining({
+      source: "images/clip.mp4#t=10",
+      resolvedPath: "/notes/post/images/clip.mp4"
+    })]);
+  });
+
   it("removes raw HTML video so only Markdown-declared local media plays", async () => {
     const result = await renderDocument(
       '<video src="images/raw.mp4" autoplay onplay="bad()"><source src="https://evil.example/x.mp4"></video>\n'

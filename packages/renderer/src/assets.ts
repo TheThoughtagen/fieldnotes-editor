@@ -23,7 +23,9 @@ export function discoverImageAssets(
 ): AssetDiscovery {
   const definitions = new Map<string, { url: string; title?: string }>();
   visitNodes(tree, node => {
-    if (node.type === "definition" && node.identifier && node.url) {
+    // CommonMark uses the first definition of a label; later duplicates are ignored.
+    if (node.type === "definition" && node.identifier && node.url
+      && !definitions.has(node.identifier.toLowerCase())) {
       definitions.set(node.identifier.toLowerCase(), {
         url: node.url,
         ...(node.title == null ? {} : { title: node.title })
@@ -56,7 +58,8 @@ export function discoverImageAssets(
       ...(target.title === undefined ? {} : { title: target.title })
     };
     if (!remote && options.sourcePath !== undefined) {
-      asset.resolvedPath = posix.normalize(posix.join(posix.dirname(options.sourcePath), target.url));
+      const filePath = target.url.split(/[?#]/u)[0] ?? "";
+      asset.resolvedPath = posix.normalize(posix.join(posix.dirname(options.sourcePath), filePath));
     }
     assets.push(asset);
 

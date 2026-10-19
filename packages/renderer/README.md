@@ -32,7 +32,7 @@ console.log(document.toc, document.diagnostics, document.assets);
 
 Rendered HTML is sanitized. Local image references are reported in `assets`; the renderer does not read image files or perform network requests.
 
-Image syntax that points at a relative `.mp4` or `.webm` path renders a native player instead of an image: `![Walkthrough](images/demo.mp4 "Optional title")` becomes `<video controls playsinline preload="metadata">` with the alt text as its accessible label and a download link as fallback. It is reported in `assets` with `kind: "video"`. Remote video URLs stay images, so `allowRemoteImages` still governs them, and raw HTML `<video>` is removed with a `video.raw-html` warning.
+Image syntax that points at a relative `.mp4` or `.webm` path renders a native player instead of an image: `![Walkthrough](images/demo.mp4 "Optional title")` becomes `<video controls playsinline preload="metadata">` with the alt text as its accessible label and as the fallback text. It is reported in `assets` with `kind: "video"`. Remote video URLs stay images, so `allowRemoteImages` still governs them, and raw HTML `<video>` is removed with a `video.raw-html` warning.
 
 ## Hydrate Mermaid in a browser
 
