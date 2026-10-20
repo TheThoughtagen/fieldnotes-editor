@@ -81,18 +81,46 @@ The app integration suite requires a logged-in macOS GUI session. Its runner bui
 
 ## Release prerequisites
 
-App CI runs on every push and pull request. A `vX.Y.Z` tag reruns the full gate. Configure these repository secrets before tagging; missing values fail the release job:
+App CI runs on every push and pull request. A `vX.Y.Z` tag reruns the full gate. The signed release path requires paid Apple Developer Program membership, a **Developer ID Application** certificate with its private key (not Apple Development or Developer ID Installer), and notarization access. The account holder can create the certificate in [Apple Certificates](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/). Export the identity and private key together from Keychain Access as a password-protected `.p12`.
+
+In App Store Connect → Users and Access → Integrations, create/download a notarization-capable API key. A **team API key** with Developer access is recommended: record its key ID and issuer UUID and securely retain the `.p8` (downloadable once). Individual API keys are also supported by current Xcode; omit the issuer for those keys. The Apple team ID comes from Developer account membership details; it is distinct from the API issuer UUID.
+
+Configure these repository secrets before tagging; missing required values fail closed:
 
 | Secret | Value |
 | --- | --- |
-| `DEVELOPER_ID` | Developer ID Application signing identity |
+| `DEVELOPER_ID` | Full `Developer ID Application: Name (TEAMID)` identity |
+| `APPLE_TEAM_ID` | Expected 10-character Apple Developer team ID |
 | `SIGNING_CERTIFICATE` | Base64 PKCS#12 certificate plus private key |
-| `SIGNING_PASSWORD` | PKCS#12 password |
-| `NOTARY_PRIVATE_KEY` | Apple App Store Connect API `.p8` contents |
+| `SIGNING_PASSWORD` | Nonempty PKCS#12 password |
+| `NOTARY_PRIVATE_KEY` | App Store Connect API `.p8` contents |
 | `NOTARY_KEY_ID` | API key ID |
-| `NOTARY_ISSUER` | API issuer UUID |
-| `TAP_TOKEN` | Token with contents, pull requests, and commit-status write access in `TheThoughtagen/homebrew-tap` |
+| `NOTARY_ISSUER` | Team API issuer UUID; empty for individual API keys |
 
-Apple Developer ID membership, valid notarization access, repository release permissions, and an initialized public tap default branch are required. Enable immutable GitHub releases before publishing. Initialize an empty tap through separately reviewed repository setup; the release workflow does not bootstrap or push directly to its default branch.
+Keep the `.p12` and `.p8` outside this checkout, such as in a private directory under your home folder. Authenticate `gh` for this repository, then validate the local files with the helper (the certificate password is prompted with hidden input):
 
-The signing script signs the native `Contents/MacOS/fieldnotes` executable first, then the app with Hardened Runtime and no `get-task-allow`. It submits the DMG to Apple, staples and validates the ticket, assesses Gatekeeper, and only then computes the checksum. The workflow verifies the mounted app and CLI, publishes the versioned DMG and checksum, and creates a cask update PR only after checking the published immutable release. Cask audit/install/CLI-open/uninstall run in CI; the tap PR still requires independent review before merge. Credentialed steps cannot be validated by an unsigned local build.
+```sh
+python3 scripts/configure-release-secrets.py \
+  --repo TheThoughtagen/fieldnotes-editor \
+  --certificate "$HOME/.private/apple/developer-id.p12" \
+  --notary-key "$HOME/.private/apple/AuthKey_KEYID.p8" \
+  --developer-id 'Developer ID Application: Your Name (TEAMID1234)' \
+  --team-id TEAMID1234 --key-id YOURKEYID1 \
+  --issuer 00000000-0000-0000-0000-000000000000
+```
+
+Replace every example value with your account details. This validates file formats only. Repeat with `--upload` to set repository secrets through stdin; no secret is placed in command arguments or written into the repository. Omit `--issuer` for an individual key. Upload replaces all listed secrets, including clearing a previous issuer when switching to an individual key. The helper does not create a tag or publish a release. Keep credential exports private and do not paste passwords or private keys into chat, issue descriptions, or workflow logs.
+
+Enable immutable GitHub releases in repository settings before publication. Before creating a release tag, verify the live setting with your repository administrator's local `gh` authentication:
+
+```sh
+GITHUB_REPOSITORY=TheThoughtagen/fieldnotes-editor scripts/check-release-policy.sh
+```
+
+This endpoint requires Administration(read), which the workflow's built-in token cannot obtain. CI uses its built-in token to publish, then requires the resulting release's `immutable` property to be true. That postcondition detects configuration drift, but cannot prevent a mutable publication if someone disables the setting after the local preflight. Keep the repository policy enabled. To release a reviewed commit, run `git tag vX.Y.Z <reviewed-commit>` and `git push origin vX.Y.Z`. To retry an existing tag, rerun its failed workflow or use `gh workflow run release-app.yml --ref vX.Y.Z`; branch dispatches are rejected. Never move a published tag. A failed run that created a draft may require deleting that unpublished draft before retrying; published immutable releases cannot be replaced.
+
+The signing script requires `APP_VERSION` to match both bundle version fields before signing. It resolves the exact Developer ID identity only in a temporary keychain, signs the native CLI and app with Hardened Runtime and timestamps, and checks their authority and team. It submits an app ZIP, requires a structured `Accepted` response, staples and validates the app, then creates and signs a DMG containing that app and the Applications shortcut. It notarizes and staples the DMG separately, verifies Gatekeeper for both, and computes the checksum of the final stapled bytes. Each notary wait is limited to 15 minutes; submission IDs, structured responses, and Apple logs are retained as workflow artifacts on failures as well as successes. A timeout does not cancel Apple's processing; inspect the report before retrying. CI removes temporary signing credentials even after failure.
+
+Homebrew is optional and cannot block publishing the signed app. Set repository variable `ENABLE_HOMEBREW=true` only after initializing and reviewing the public `TheThoughtagen/homebrew-tap` default branch and adding `TAP_TOKEN` with contents, pull requests, and commit-status write access for that tap. The separate Homebrew job checks the published immutable release, runs cask audit/install/CLI-open/uninstall checks, and opens a cask PR for independent review. Leave the variable unset while the tap is empty or its token is unavailable.
+
+The local release tests use command stubs to verify rejection, timeout, ordering, and policy behavior. They do **not** validate real Apple credentials, signatures, notarization, or Gatekeeper acceptance. A successful credentialed workflow and mounted distribution checks are required before claiming a signed, notarized release.
